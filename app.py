@@ -2,9 +2,10 @@
 # ------------------------------------------------------------------------------
 # Harptos – Year-at-a-glance calendar (Shiny for Python)
 # - 3×10 layout per month with intercalary "31" labels
-# - Manual Current Date controls (+ save) and Advance +1 Day (+ auto daily tick)
-# - Day click opens a "Day Details" modal that lists existing events for that day
-#   with an "Add New Event" button to open a labelled Add/Edit Event form
+# - Manual current-date controls (+ save) and Advance +1 Day (+ auto daily tick)
+# - Events rendered as chips inside each day cell (click to edit)
+# - Day Details modal (lists events; add new; edit existing)
+# - Add/Edit form is labelled; supports Save (upsert) and Delete
 # - Events use UUID4 ids (Postgres UUID)
 # ------------------------------------------------------------------------------
 
@@ -12,8 +13,8 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional, Set
 
 import anyio
 from shiny import App, reactive, render, ui
@@ -38,6 +39,7 @@ MONTHS: List[str] = [
 ]
 DAYS_PER_MONTH = 30
 
+# Months that get an intercalary “31” with festival label
 FESTIVALS: Dict[int, str] = {
     1: "Midwinter",
     4: "Greengrass",
@@ -79,6 +81,14 @@ def _iso(d: Optional[date]) -> Optional[str]:
     except Exception:
         return None
 
+def _parse_iso_or_none(s: Optional[str]) -> Optional[date]:
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s)
+    except Exception:
+        return None
+
 def advance_one(h: HarptosDate) -> HarptosDate:
     """Advance one day with intercalaries on months 1/4/7/9/11 at day 31."""
     y, m, d = h["year"], h["month"], h["day"]
@@ -100,6 +110,10 @@ def advance_one(h: HarptosDate) -> HarptosDate:
         return {"year": y, "month": m, "day": 1}
     return {"year": y, "month": 1, "day": 1}
 
+def safe_id(s: str) -> str:
+    """Make a Supabase UUID safe for Shiny input ids (replace hyphens)."""
+    return s.replace("-", "_")
+
 # ---------- Shared state -----------------------------------------------------
 
 db = SupaClient()
@@ -108,8 +122,29 @@ current: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
 events: reactive.Value[List[Dict[str, Any]]] = reactive.Value([])
 markers: reactive.Value[Dict[str, List[Dict[str, int]]]] = reactive.Value({"new": [], "full": []})
 
-# remember which y/m/d the modal is for
 selected_date: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
+selected_event_id: reactive.Value[Optional[str]] = reactive.Value(None)
+
+# Track which dynamic handlers we’ve installed for event edit buttons/chips
+_registered_edit_ids: Set[str] = set()
+
+# ---------- Query helpers ----------------------------------------------------
+
+def events_for_day(y: int, m: int, d: int) -> List[Dict[str, Any]]:
+    all_rows = events.get() or []
+    return [
+        r for r in all_rows
+        if int(r.get("year", 0)) == y and int(r.get("month", 0)) == m and int(r.get("day", 0)) == d
+    ]
+
+def events_map_for_year(y: int) -> Dict[tuple, List[Dict[str, Any]]]:
+    emap: Dict[tuple, List[Dict[str, Any]]] = {}
+    for r in (events.get() or []):
+        if int(r.get("year", 0)) != y:
+            continue
+        key = (int(r.get("month", 0)), int(r.get("day", 0)))
+        emap.setdefault(key, []).append(r)
+    return emap
 
 # ---------- UI builders ------------------------------------------------------
 
@@ -126,7 +161,22 @@ def pip_for_day(m: int, d: int) -> ui.TagChild | None:
         spans.append(ui.span(class_="pip pip-full", title="Full Moon"))
     return ui.span(*spans, class_="pip-wrap")
 
-def day_cell(m: int, d: int, highlight: bool) -> ui.TagChild:
+def event_chips(y: int, m: int, d: int) -> ui.TagChild:
+    """Stack of clickable chips for a day; each chip edits that event."""
+    day_events = events_for_day(y, m, d)
+    chips: List[ui.TagChild] = []
+    # Show up to 3 chips; indicate overflow
+    for e in day_events[:3]:
+        eid = str(e.get("id"))
+        sid = safe_id(eid)
+        title = (e.get("title") or "(Untitled)").strip()
+        short = title if len(title) <= 24 else f"{title[:23]}…"
+        chips.append(ui.input_action_button(f"edit_{sid}", short, class_="chip"))
+    if len(day_events) > 3:
+        chips.append(ui.span(f"+{len(day_events) - 3}", class_="chip chip-more", title="More… (click day)"))
+    return ui.div(*chips, class_="chip-stack")
+
+def day_cell(y: int, m: int, d: int, highlight: bool) -> ui.TagChild:
     pid = f"m{m}_d{d}"
     classes = ["day-btn", "btn", "btn-outline-light"]
     if highlight:
@@ -134,10 +184,11 @@ def day_cell(m: int, d: int, highlight: bool) -> ui.TagChild:
     return ui.div(
         ui.input_action_button(pid, str(d), class_=" ".join(classes)),
         pip_for_day(m, d),
+        event_chips(y, m, d),
         class_="day-cell"
     )
 
-def festival_cell(m: int) -> ui.TagChild:
+def festival_cell(y: int, m: int) -> ui.TagChild:
     label = FESTIVALS.get(m)
     if not label:
         return ui.div()
@@ -148,6 +199,7 @@ def festival_cell(m: int) -> ui.TagChild:
             ui.div(label, class_="festival-label"),
             class_="festival-wrap",
         ),
+        event_chips(y, m, 31),
         class_="day-cell festival-cell"
     )
 
@@ -157,18 +209,14 @@ def month_card(m: int, cur: Optional[HarptosDate]) -> ui.TagChild:
     rows: List[ui.TagChild] = []
     for r in range(3):
         start = r * 10 + 1
-        row_days = [day_cell(m, d, hlt(d)) for d in range(start, start + 10)]
+        row_days = [day_cell(view_year, m, d, hlt(d)) for d in range(start, start + 10)]
         rows.append(ui.div(*row_days, class_="day-row"))
-    rows.append(ui.div(festival_cell(m), class_="festival-row"))
+    rows.append(ui.div(festival_cell(view_year, m), class_="festival-row"))
     return ui.card(
         ui.card_header(f"{month_name(m)} {view_year}"),
         *rows,
         class_="month-card glass"
     )
-
-def events_for_day(y: int, m: int, d: int) -> List[Dict[str, Any]]:
-    all_rows = events.get() or []
-    return [r for r in all_rows if int(r.get("year", 0)) == y and int(r.get("month", 0)) == m and int(r.get("day", 0)) == d]
 
 def day_details_modal(y: int, m: int, d: int) -> ui.TagChild:
     day_rows = events_for_day(y, m, d)
@@ -180,9 +228,14 @@ def day_details_modal(y: int, m: int, d: int) -> ui.TagChild:
             title = r.get("title") or "(Untitled)"
             notes = r.get("notes") or ""
             rw = r.get("real_world_date") or "Unknown Real Date"
+            eid = safe_id(str(r.get("id")))
             cards.append(
                 ui.div(
-                    ui.div(title, class_="event-title"),
+                    ui.div(
+                        ui.span(title, class_="event-title"),
+                        ui.input_action_button(f"edit_{eid}", "✎ Edit", class_="btn btn-link btn-sm edit-link ms-2"),
+                        class_="d-flex align-items-center gap-1"
+                    ),
                     ui.div(rw, class_="event-date"),
                     ui.div(notes, class_="event-notes"),
                     class_="event-card"
@@ -201,10 +254,21 @@ def day_details_modal(y: int, m: int, d: int) -> ui.TagChild:
         size="l",
     )
 
-def event_form_modal(y: int, m: int, d: int, title_val: str = "", notes_val: str = "", rw_date: Optional[date] = None) -> ui.TagChild:
-    """Labelled Add/Edit form."""
+def event_form_modal(
+    y: int, m: int, d: int, *,
+    title_val: str = "", notes_val: str = "", rw_date: Optional[date] = None,
+    event_id: Optional[str] = None
+) -> ui.TagChild:
+    """Labelled Add/Edit form; shows Delete if editing."""
     if rw_date is None:
         rw_date = date.today()
+    footer_children: List[ui.TagChild] = [
+        ui.input_action_button("ev_save", "Save", class_="btn btn-primary me-2"),
+    ]
+    if event_id:
+        footer_children.append(ui.input_action_button("ev_delete", "Delete", class_="btn btn-danger me-2"))
+    footer_children.append(ui.input_action_button("ev_cancel", "Cancel", class_="btn btn-secondary"))
+
     return ui.modal(
         ui.h5("Add / Edit Event", class_="mb-3"),
         ui.row(
@@ -215,10 +279,7 @@ def event_form_modal(y: int, m: int, d: int, title_val: str = "", notes_val: str
         ui.input_text("ev_title", "Title", value=title_val),
         ui.input_text_area("ev_desc", "Description", value=notes_val),
         ui.input_date("ev_real_date", "Real-World Date", value=rw_date),
-        footer=ui.div(
-            ui.input_action_button("ev_save", "Save", class_="btn btn-primary me-2"),
-            ui.input_action_button("ev_cancel", "Cancel", class_="btn btn-secondary"),
-        ),
+        footer=ui.div(*footer_children),
         easy_close=True,
         size="l",
     )
@@ -309,6 +370,8 @@ def server(input, output, session):
 
     @render.ui
     def calendar():
+        # Depend on events so chips update
+        _ = events.get()
         h = current.get()
         grid = [month_card(m, h) for m in range(1, 13)]
         return ui.div(*grid, class_="months-wrap")
@@ -378,6 +441,34 @@ def server(input, output, session):
         if m in FESTIVALS:
             make_day_handler(m, 31)
 
+    # Install dynamic edit handlers for all current events (chips + list)
+    @reactive.Effect
+    def _install_edit_handlers():
+        evs = events.get() or []
+        for e in evs:
+            eid = str(e.get("id"))
+            sid = safe_id(eid)
+            if sid in _registered_edit_ids:
+                continue
+            # Both chip and list use the same id "edit_{sid}"
+            trigger = getattr(input, f"edit_{sid}")
+            @reactive.Effect
+            @reactive.event(trigger)
+            def _open_editor(_e=e):
+                y = int(_e.get("year", 1492))
+                m = int(_e.get("month", 1))
+                d = int(_e.get("day", 1))
+                selected_date.set({"year": y, "month": m, "day": d})
+                selected_event_id.set(str(_e.get("id")))
+                ui.modal_show(event_form_modal(
+                    y, m, d,
+                    title_val=_e.get("title") or "",
+                    notes_val=_e.get("notes") or "",
+                    rw_date=_parse_iso_or_none(_e.get("real_world_date")),
+                    event_id=str(_e.get("id")),
+                ))
+            _registered_edit_ids.add(sid)
+
     # Day Details modal actions
     @reactive.Effect
     @reactive.event(input.ev_list_close)
@@ -388,6 +479,7 @@ def server(input, output, session):
     @reactive.event(input.ev_add_new)
     def _from_list_to_form():
         h = selected_date.get() or {"year": 1492, "month": 1, "day": 1}
+        selected_event_id.set(None)
         ui.modal_remove()
         ui.modal_show(event_form_modal(h["year"], h["month"], h["day"]))
 
@@ -399,6 +491,26 @@ def server(input, output, session):
         ui.modal_remove()
         if h:
             ui.modal_show(day_details_modal(h["year"], h["month"], h["day"]))
+
+    @reactive.Effect
+    @reactive.event(input.ev_delete)
+    async def _delete_event():
+        eid = selected_event_id.get()
+        if not eid:
+            ui.notification_show("Nothing to delete.", type="warning")
+            return
+        try:
+            await anyio.to_thread.run_sync(lambda: db.delete_event(eid))
+        except Exception as e:
+            print("[App] delete_event failed:", repr(e))
+            ui.notification_show("Delete failed (see logs / RLS).", type="error")
+            return
+        await reload_events()
+        h = selected_date.get()
+        ui.modal_remove()
+        if h:
+            ui.modal_show(day_details_modal(h["year"], h["month"], h["day"]))
+        ui.notification_show("Event deleted.", type="message")
 
     @reactive.Effect
     @reactive.event(input.ev_save)
@@ -419,8 +531,9 @@ def server(input, output, session):
         if d < 1: d = 1
         if d > 31: d = 31
 
+        eid = selected_event_id.get()
         rec = {
-            "id": generate_event_id(),  # UUID for UUID column
+            "id": eid if eid else generate_event_id(),  # UUID for UUID column
             "year": y,
             "month": m,
             "day": d,
@@ -438,6 +551,7 @@ def server(input, output, session):
 
         await reload_events()
         selected_date.set({"year": y, "month": m, "day": d})
+        selected_event_id.set(None)
         ui.modal_remove()
         ui.modal_show(day_details_modal(y, m, d))
         ui.notification_show("Event saved.", type="message")
