@@ -1,8 +1,6 @@
 /* www/styles.css
-   Single "Year at a Glance" layout like the reference image.
-   - 12 months visible; no inner scrollbars.
-   - Day cells are big; events are 2-column tiles inside each day.
-   - Modals have light background with dark labels/inputs (readable).
+   Full-width year grid (no inner scrollbars). Big day tiles; event tiles inside.
+   Page can scroll; months never have their own scrollbars.
 ------------------------------------------------------------------ */
 :root{
   --fg: #fff;
@@ -10,13 +8,12 @@
   --panel-2: #2f5a88;
   --border: rgba(255,255,255,0.25);
   --highlight: #b7ffb1;
+
   --tile: #d3ecff;
   --tile-border: #b6d7ff;
   --tile-text: #0e233a;
 
-  /* Reserve vertical space for header + controls to keep 12 months on screen */
-  --months-top-offset: 260px;
-  --grid-gap: 16px;
+  --grid-gap: 18px;
 }
 
 html, body{
@@ -34,30 +31,24 @@ html, body{
   border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* ===================== YEAR GRID ===================== */
+/* ===================== YEAR GRID (full width) ===================== */
 .months-wrap{
-  height: calc(100vh - var(--months-top-offset));
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: repeat(3, 1fr);   /* ensures 3 rows fill the viewport */
+  grid-template-columns: repeat(4, 1fr); /* 4 across like your screenshot */
   gap: var(--grid-gap);
+  width: 100%;
 }
-@media (max-width: 1500px){
-  /* If the screen is smaller, still try to keep 4×3; reduce gaps slightly */
-  :root{ --grid-gap: 12px; }
-}
+@media (max-width: 1400px){ .months-wrap{ grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 992px){  .months-wrap{ grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px){  .months-wrap{ grid-template-columns: 1fr; } }
 
-/* Month card fills its grid cell */
+/* Month card expands with its content. No fixed height -> no internal scrollbars */
 .glass.month-card{
-  height: 100%;
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 12px;
+  padding: 12px 14px;
   color: var(--fg);
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  overflow: hidden;
 }
 
 .card-header{
@@ -65,53 +56,44 @@ html, body{
   border-bottom: 1px solid rgba(255,255,255,0.15);
   color: #e9f2ff;
   font-weight: 600;
-  padding: 4px 0 8px 0;
-  font-size: clamp(13px, 1.05vw, 18px);
+  padding: 4px 0 10px 0;
+  font-size: clamp(14px, 1.1vw, 18px);
 }
 
-/* 3 day rows each taking equal height */
-.days-wrap{
-  display: grid;
-  grid-template-rows: repeat(3, 1fr);
-  gap: 8px;
-  min-height: 0;
-}
-.day-row{
-  display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 8px;
-  min-height: 0;
-}
+/* 3 rows × 10 columns; rows auto-size to fit big tiles */
+.days-wrap{ display: grid; grid-template-rows: auto auto auto; gap: 10px; }
+.day-row{  display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; }
 
-/* Day cell */
+/* Day cell: big tile area with pinned day badge */
 .day-cell{
   position: relative;
-  border-radius: 10px;
-  padding: 8px;
   background: rgba(255,255,255,0.07);
-  min-width: 0;
+  border-radius: 12px;
+  padding: 36px 12px 12px 12px;  /* top padding leaves room for badge */
+  min-height: 160px;            /* <<< BIGGER TILES */
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  overflow: hidden;           /* event tiles clip instead of scrolling */
+  gap: 10px;
+  overflow: hidden;             /* never show an inner scrollbar */
 }
 
-/* Day number */
-.day-btn{
-  width: max-content;
-  max-width: 100%;
-  min-width: 2.6ch;           /* fits “31” */
+/* Small badge for the day number pinned top-left */
+.day-badge{
+  position: absolute;
+  top: 8px; left: 8px;
+  z-index: 2;
   padding: 0 .6ch;
   height: 28px;
+  min-width: 2.6ch;
   font-size: clamp(12px, .95vw, 16px);
   line-height: 26px;
   color: #e7f0ff;
-  border: 1px solid rgba(255,255,255,0.25);
-  background: transparent;
-  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.35);
+  background: rgba(0,0,0,0.15);
+  border-radius: 8px;
   white-space: nowrap;
 }
-.day-btn:hover{ filter: brightness(1.1); }
+.day-badge:hover{ filter: brightness(1.1); }
 .day-current{
   background: var(--highlight) !important;
   color: #0a2f0a !important;
@@ -119,44 +101,39 @@ html, body{
   font-weight: 700;
 }
 
-/* Moon pips */
+/* Moon pips pinned top-right */
 .pip-wrap{
-  position: absolute; right: 8px; top: 8px; display: flex; gap: 4px;
+  position: absolute; right: 8px; top: 10px; display: flex; gap: 4px; z-index: 2;
 }
 .pip{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .pip-new{ background:#e6fff8; box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset; }
 .pip-full{ background:#161616; box-shadow: 0 0 0 1px rgba(255,255,255,.6) inset; }
 
-/* Festival row with day 31 */
-.festival-row{
-  display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 8px;
-}
-.festival-cell .day-btn{ width: max-content; min-width: 2.6ch; }
+/* Festival row (intercalary 31) */
+.festival-row{ display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; }
+.festival-cell .day-badge{ position: static; } /* keep inside label row */
 .festival-wrap{ display: inline-flex; align-items: center; gap: 8px; }
-.festival-label{ font-size: clamp(11px, .9vw, 13px); color: #eaf5ff; }
+.festival-label{ font-size: clamp(12px, .95vw, 14px); color: #eaf5ff; }
 
-/* ======= Event tiles (two-column grid) ======= */
+/* Event tile grid: two columns of large cards */
 .ev-grid{
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  grid-auto-rows: 64px;       /* tile height */
-  gap: 8px;
-  min-height: 0;
+  grid-auto-rows: 84px;         /* <<< LARGE event tiles */
+  gap: 10px;
 }
 .ev-tile{
   display: block;
   width: 100%;
   text-align: left;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
   background: var(--tile);
   color: var(--tile-text) !important;
   border: 1px solid var(--tile-border);
-  font-size: clamp(11px, .9vw, 14px);
-  line-height: 1.2;
-  white-space: normal;        /* allow wrapping */
+  font-size: clamp(12px, .95vw, 16px);
+  line-height: 1.25;
+  white-space: normal;          /* wrap lines */
   overflow: hidden;
 }
 .ev-more{
