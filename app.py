@@ -1,11 +1,11 @@
 # app.py
 # ------------------------------------------------------------------------------
 # Harptos – Year-at-a-glance calendar (Shiny for Python)
-# - 3×10 layout per month with intercalary "31" labels
-# - Manual current-date controls (+ save) and Advance +1 Day (+ auto daily tick)
-# - Events rendered as chips inside each day cell (click to edit)
-# - Day Details modal (lists events; add new; edit existing)
-# - Add/Edit form is labelled; supports Save (upsert) and Delete
+# - Full year visible at once (no inner scrollbars); months and cells auto-scale
+# - Events shown as chips inside each day cell
+# - Click a day -> Day Details modal (list + Add New)
+# - Click a chip (or "✎ Edit") -> labelled Add/Edit form (Save / Delete)
+# - Manual current-date controls, Save, Advance +1 Day, plus auto daily tick
 # - Events use UUID4 ids (Postgres UUID)
 # ------------------------------------------------------------------------------
 
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, List, Optional, Set
 
 import anyio
@@ -81,14 +81,6 @@ def _iso(d: Optional[date]) -> Optional[str]:
     except Exception:
         return None
 
-def _parse_iso_or_none(s: Optional[str]) -> Optional[date]:
-    if not s:
-        return None
-    try:
-        return date.fromisoformat(s)
-    except Exception:
-        return None
-
 def advance_one(h: HarptosDate) -> HarptosDate:
     """Advance one day with intercalaries on months 1/4/7/9/11 at day 31."""
     y, m, d = h["year"], h["month"], h["day"]
@@ -137,15 +129,6 @@ def events_for_day(y: int, m: int, d: int) -> List[Dict[str, Any]]:
         if int(r.get("year", 0)) == y and int(r.get("month", 0)) == m and int(r.get("day", 0)) == d
     ]
 
-def events_map_for_year(y: int) -> Dict[tuple, List[Dict[str, Any]]]:
-    emap: Dict[tuple, List[Dict[str, Any]]] = {}
-    for r in (events.get() or []):
-        if int(r.get("year", 0)) != y:
-            continue
-        key = (int(r.get("month", 0)), int(r.get("day", 0)))
-        emap.setdefault(key, []).append(r)
-    return emap
-
 # ---------- UI builders ------------------------------------------------------
 
 def pip_for_day(m: int, d: int) -> ui.TagChild | None:
@@ -165,15 +148,15 @@ def event_chips(y: int, m: int, d: int) -> ui.TagChild:
     """Stack of clickable chips for a day; each chip edits that event."""
     day_events = events_for_day(y, m, d)
     chips: List[ui.TagChild] = []
-    # Show up to 3 chips; indicate overflow
-    for e in day_events[:3]:
+    # Show up to 2 chips; indicate overflow (+N) to keep cells compact
+    for e in day_events[:2]:
         eid = str(e.get("id"))
         sid = safe_id(eid)
         title = (e.get("title") or "(Untitled)").strip()
-        short = title if len(title) <= 24 else f"{title[:23]}…"
+        short = title if len(title) <= 20 else f"{title[:19]}…"
         chips.append(ui.input_action_button(f"edit_{sid}", short, class_="chip"))
-    if len(day_events) > 3:
-        chips.append(ui.span(f"+{len(day_events) - 3}", class_="chip chip-more", title="More… (click day)"))
+    if len(day_events) > 2:
+        chips.append(ui.span(f"+{len(day_events) - 2}", class_="chip chip-more", title="More… (click day)"))
     return ui.div(*chips, class_="chip-stack")
 
 def day_cell(y: int, m: int, d: int, highlight: bool) -> ui.TagChild:
@@ -206,15 +189,19 @@ def festival_cell(y: int, m: int) -> ui.TagChild:
 def month_card(m: int, cur: Optional[HarptosDate]) -> ui.TagChild:
     view_year = (cur or {"year": 1492})["year"]
     hlt = (lambda d: bool(cur and cur["month"] == m and cur["day"] == d))
+
+    # Build three rows of ten cells – we wrap them in a .days-wrap so CSS can
+    # distribute vertical space evenly (no internal scrollbars).
     rows: List[ui.TagChild] = []
     for r in range(3):
         start = r * 10 + 1
         row_days = [day_cell(view_year, m, d, hlt(d)) for d in range(start, start + 10)]
         rows.append(ui.div(*row_days, class_="day-row"))
-    rows.append(ui.div(festival_cell(view_year, m), class_="festival-row"))
+
     return ui.card(
         ui.card_header(f"{month_name(m)} {view_year}"),
-        *rows,
+        ui.div(*rows, class_="days-wrap"),
+        ui.div(festival_cell(view_year, m), class_="festival-row"),
         class_="month-card glass"
     )
 
@@ -262,6 +249,7 @@ def event_form_modal(
     """Labelled Add/Edit form; shows Delete if editing."""
     if rw_date is None:
         rw_date = date.today()
+
     footer_children: List[ui.TagChild] = [
         ui.input_action_button("ev_save", "Save", class_="btn btn-primary me-2"),
     ]
@@ -450,7 +438,6 @@ def server(input, output, session):
             sid = safe_id(eid)
             if sid in _registered_edit_ids:
                 continue
-            # Both chip and list use the same id "edit_{sid}"
             trigger = getattr(input, f"edit_{sid}")
             @reactive.Effect
             @reactive.event(trigger)
@@ -464,7 +451,7 @@ def server(input, output, session):
                     y, m, d,
                     title_val=_e.get("title") or "",
                     notes_val=_e.get("notes") or "",
-                    rw_date=_parse_iso_or_none(_e.get("real_world_date")),
+                    rw_date=(date.fromisoformat(_e["real_world_date"]) if _e.get("real_world_date") else None),
                     event_id=str(_e.get("id")),
                 ))
             _registered_edit_ids.add(sid)
