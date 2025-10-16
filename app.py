@@ -1,6 +1,21 @@
 
 from shiny import App, ui, reactive, render
 from supabase_client import list_items, add_item
+import os
+SUPABASE_READY = bool(os.getenv("SUPABASE_URL","").strip() and
+                      (os.getenv("SUPABASE_SERVICE_KEY","").strip() or os.getenv("SUPABASE_ANON_KEY","").strip()))
+
+@reactive.effect
+def _init_load():
+    try:
+        if not SUPABASE_READY:
+            status.set("Supabase not configured — skipping initial fetch.")
+            return
+        items_store.set(list_items(limit=100))
+        status.set("Loaded.")
+    except Exception as e:
+        status.set(f"Error: {e}")
+
 
 # ---- UI ----
 app_ui = ui.page_fluid(
