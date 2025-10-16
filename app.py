@@ -1,8 +1,7 @@
 # app.py
 # ------------------------------------------------------------------------------
-# Harptos – Single "Year at a Glance" layout (no inner scrollbars in months)
-# - 12 months on one page, full-width (container-fluid)
-# - Square day tiles; compact event tiles (smaller text)
+# Harptos – Single "Year at a Glance" layout
+# - Square day tiles; event chips scale to fit (container query units)
 # - Click day -> list + Add; click event -> Edit (labeled)
 # - UUID ids; manual current-date controls; auto +1 day tick
 # ------------------------------------------------------------------------------
@@ -90,16 +89,17 @@ def pip_for_day(m: int, d: int):
     return ui.span(*dots, class_="pip-wrap")
 
 def event_tiles(y: int, m: int, d: int) -> ui.TagChild:
-    """Compact 1-column tile list; small text; clamp visible tiles."""
+    """Compact 1-column tiles; auto-scale text to fit. Tooltip carries full title."""
     day_rows = events_for_day(y, m, d)
     tiles: List[ui.TagChild] = []
-    max_items = 3  # keep square cells tidy
+    max_items = 3  # keep squares tidy
 
     for e in day_rows[:max_items]:
         sid = safe_id(e.get("id"))
-        title = (e.get("title") or "(Untitled)").strip()
-        short = title if len(title) <= 44 else f"{title[:43]}…"
-        tiles.append(ui.input_action_button(f"edit_{sid}", short, class_="ev-tile"))
+        full = (e.get("title") or "(Untitled)").strip()
+        short = full if len(full) <= 60 else f"{full[:59]}…"
+        # Add title attribute for hover tooltip (full text)
+        tiles.append(ui.input_action_button(f"edit_{sid}", short, class_="ev-tile", title=full))
 
     overflow = len(day_rows) - max_items
     if overflow > 0:
@@ -125,7 +125,7 @@ def festival_cell(y: int, m: int) -> ui.TagChild:
     return ui.div(
         ui.div(
             ui.input_action_button(pid,"31",class_="day-badge btn btn-outline-light"),
-            ui.div(label,class_="festival-label"),
+            ui.div(label,class_="festival-label", title=label),
             class_="festival-wrap"
         ),
         event_tiles(y,m,31),
