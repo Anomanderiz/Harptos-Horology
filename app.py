@@ -18,6 +18,12 @@ from shiny import App, ui, render, reactive
 import anyio
 
 from supa import SupaClient, HarptosDate, HarptosDateDict, step_harptos
+from shiny import render
+
+@render.ui
+def current_date_label():
+    # return any tag/HTML here
+    return ui.span("…computed label…")
 
 # ------------ Config ---------------------------------------------------------
 
@@ -149,12 +155,6 @@ page = ui.page_fluid(
                                class_="btn btn-outline-light"),
         ui.div(ui.output_text("current_date_label", inline=True),
         class_="ms-auto text-on-dark")
-        from shiny import render
-
-        @render.ui
-        def current_date_label():
-        # return any tag/HTML here
-        return ui.span("…computed label…")
 
     ),
 
