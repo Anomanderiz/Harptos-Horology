@@ -9,6 +9,26 @@ except Exception:
     # older releases
     from supabase.lib.client_options import ClientOptions
 
+# Keep this simple alias if you don’t need strict typing:
+from typing import Dict
+HarptosDate = Dict[str, int]
+
+def step_harptos(h: HarptosDate, months: list[str], dpm: int) -> HarptosDate:
+    day = h["day"] + 1
+    month = h["month"]
+    year = h["year"]
+    if day > dpm:
+        day = 1
+        month += 1
+        if month > len(months):
+            month = 1
+            year += 1
+    return {"year": year, "month": month, "day": day}
+
+# Optional but tidy: make exports explicit
+__all__ = ["SupaClient", "HarptosDate", "step_harptos"]
+
+
 
 class SupaClient:
     def __init__(self, url: str, key: str, schema: str = "public", table: str = "state"):
