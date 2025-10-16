@@ -1,10 +1,11 @@
 # app.py
 # ------------------------------------------------------------------------------
 # Harptos – Year-at-a-glance calendar (Shiny for Python)
-# - Full 12-month grid (3 rows × 10 days) with intercalary "31" labels
-# - Manual Current Date setter (month/day/year)
-# - Advance +1 Day (manual button) and automatic daily tick (+1 day)
-# - Event save uses UUID4 ids (for Supabase UUID column)
+# - 3×10 layout per month with intercalary "31" labels
+# - Manual Current Date controls (+ save) and Advance +1 Day (+ auto daily tick)
+# - Day click opens a "Day Details" modal that lists existing events for that day
+#   with an "Add New Event" button to open a labelled Add/Edit Event form
+# - Events use UUID4 ids (Postgres UUID)
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from typing import Any, Dict, List, Optional
 import anyio
 from shiny import App, reactive, render, ui
 
-from supa import SupaClient, HarptosDate, generate_event_id  # UUID4 string
+from supa import SupaClient, HarptosDate, generate_event_id  # UUID4 id generator
 
 # ---------- Constants ---------------------------------------------------------
 
@@ -37,7 +38,6 @@ MONTHS: List[str] = [
 ]
 DAYS_PER_MONTH = 30
 
-# Intercalary festivals
 FESTIVALS: Dict[int, str] = {
     1: "Midwinter",
     4: "Greengrass",
@@ -80,40 +80,24 @@ def _iso(d: Optional[date]) -> Optional[str]:
         return None
 
 def advance_one(h: HarptosDate) -> HarptosDate:
-    """
-    Advance the Harptos date by one day with intercalaries on '31' for months
-    1, 4, 7, 9, 11. Sequence examples:
-      29 -> 30, 30 -> 31 (if festival month), 30 -> next m/1 (otherwise),
-      31 -> next m/1, Nightal 30 -> Nightal 31? (no) -> next year 1/1.
-    """
+    """Advance one day with intercalaries on months 1/4/7/9/11 at day 31."""
     y, m, d = h["year"], h["month"], h["day"]
-
-    # If currently on the festival day, go to next month 1
     if d == 31:
         m += 1
         if m > 12:
             m = 1
             y += 1
         return {"year": y, "month": m, "day": 1}
-
-    # Normal days 1..29
     if 1 <= d < 30:
         return {"year": y, "month": m, "day": d + 1}
-
-    # Day 30
     if d == 30:
         if m in FESTIVALS:
-            # Jump to the intercalary "31"
             return {"year": y, "month": m, "day": 31}
-        else:
-            # Advance to next month, day 1
-            m += 1
-            if m > 12:
-                m = 1
-                y += 1
-            return {"year": y, "month": m, "day": 1}
-
-    # Any other edge => reset to 1/1
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+        return {"year": y, "month": m, "day": 1}
     return {"year": y, "month": 1, "day": 1}
 
 # ---------- Shared state -----------------------------------------------------
@@ -123,6 +107,9 @@ db = SupaClient()
 current: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
 events: reactive.Value[List[Dict[str, Any]]] = reactive.Value([])
 markers: reactive.Value[Dict[str, List[Dict[str, int]]]] = reactive.Value({"new": [], "full": []})
+
+# remember which y/m/d the modal is for
+selected_date: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
 
 # ---------- UI builders ------------------------------------------------------
 
@@ -165,6 +152,7 @@ def festival_cell(m: int) -> ui.TagChild:
     )
 
 def month_card(m: int, cur: Optional[HarptosDate]) -> ui.TagChild:
+    view_year = (cur or {"year": 1492})["year"]
     hlt = (lambda d: bool(cur and cur["month"] == m and cur["day"] == d))
     rows: List[ui.TagChild] = []
     for r in range(3):
@@ -173,9 +161,66 @@ def month_card(m: int, cur: Optional[HarptosDate]) -> ui.TagChild:
         rows.append(ui.div(*row_days, class_="day-row"))
     rows.append(ui.div(festival_cell(m), class_="festival-row"))
     return ui.card(
-        ui.card_header(f"{month_name(m)} 1492"),
+        ui.card_header(f"{month_name(m)} {view_year}"),
         *rows,
         class_="month-card glass"
+    )
+
+def events_for_day(y: int, m: int, d: int) -> List[Dict[str, Any]]:
+    all_rows = events.get() or []
+    return [r for r in all_rows if int(r.get("year", 0)) == y and int(r.get("month", 0)) == m and int(r.get("day", 0)) == d]
+
+def day_details_modal(y: int, m: int, d: int) -> ui.TagChild:
+    day_rows = events_for_day(y, m, d)
+    cards: List[ui.TagChild] = []
+    if not day_rows:
+        cards.append(ui.div("No events saved for this day.", class_="muted mb-2"))
+    else:
+        for r in day_rows:
+            title = r.get("title") or "(Untitled)"
+            notes = r.get("notes") or ""
+            rw = r.get("real_world_date") or "Unknown Real Date"
+            cards.append(
+                ui.div(
+                    ui.div(title, class_="event-title"),
+                    ui.div(rw, class_="event-date"),
+                    ui.div(notes, class_="event-notes"),
+                    class_="event-card"
+                )
+            )
+
+    return ui.modal(
+        ui.h5(f"{month_name(m)} {d}, {y}", class_="mb-3"),
+        *cards,
+        ui.div(
+            ui.input_action_button("ev_add_new", "Add New Event", class_="btn btn-success"),
+            ui.input_action_button("ev_list_close", "Close", class_="btn btn-secondary ms-2"),
+            class_="mt-3"
+        ),
+        easy_close=True,
+        size="l",
+    )
+
+def event_form_modal(y: int, m: int, d: int, title_val: str = "", notes_val: str = "", rw_date: Optional[date] = None) -> ui.TagChild:
+    """Labelled Add/Edit form."""
+    if rw_date is None:
+        rw_date = date.today()
+    return ui.modal(
+        ui.h5("Add / Edit Event", class_="mb-3"),
+        ui.row(
+            ui.input_select("ev_month", "Month", choices=MONTHS, selected=month_name(m)),
+            ui.input_numeric("ev_day", "Day", value=d, min=1, max=31),
+            ui.input_numeric("ev_year", "Year", value=y),
+        ),
+        ui.input_text("ev_title", "Title", value=title_val),
+        ui.input_text_area("ev_desc", "Description", value=notes_val),
+        ui.input_date("ev_real_date", "Real-World Date", value=rw_date),
+        footer=ui.div(
+            ui.input_action_button("ev_save", "Save", class_="btn btn-primary me-2"),
+            ui.input_action_button("ev_cancel", "Cancel", class_="btn btn-secondary"),
+        ),
+        easy_close=True,
+        size="l",
     )
 
 # ---------- Page -------------------------------------------------------------
@@ -188,7 +233,6 @@ page = ui.page_fluid(
         class_="navbar d-flex align-items-center gap-3 flex-wrap"
     ),
     ui.div(
-        # Manual current-date controls
         ui.card(
             ui.card_header("Current Date Controls"),
             ui.row(
@@ -221,7 +265,7 @@ def server(input, output, session):
         rows = await db.load_events()
         events.set(rows or [])
 
-    # One-per-session guard for the auto-advance timer
+    # guard for timer
     auto_state = {"started": False}
 
     @reactive.Effect
@@ -231,7 +275,6 @@ def server(input, output, session):
         if isinstance(st, dict):
             try:
                 current.set({"year": int(st["year"]), "month": int(st["month"]), "day": int(st["day"])})
-                # pre-fill the controls to match
                 session.send_input_message("set_month", {"value": month_name(int(st["month"]))})
                 session.send_input_message("set_day", {"value": int(st["day"])})
                 session.send_input_message("set_year", {"value": int(st["year"])})
@@ -243,13 +286,13 @@ def server(input, output, session):
         markers.set(load_markers())
         await reload_events()
 
-    # Automatic daily tick: +1 day from whatever is in state
+    # auto daily +1
     @reactive.Effect
     async def _auto_tick():
-        reactive.invalidate_later(86_400_000)  # every 24 hours
+        reactive.invalidate_later(86_400_000)
         if not auto_state["started"]:
             auto_state["started"] = True
-            return  # don't increment immediately on app start
+            return
         h = current.get()
         if not h:
             return
@@ -270,7 +313,7 @@ def server(input, output, session):
         grid = [month_card(m, h) for m in range(1, 13)]
         return ui.div(*grid, class_="months-wrap")
 
-    # Apply from manual controls (set but do not persist)
+    # Manual current-date controls
     @reactive.Effect
     @reactive.event(input.btn_apply_current)
     def _apply_current():
@@ -280,17 +323,12 @@ def server(input, output, session):
             m = 1
         d = int(input.set_day() or 1)
         y = int(input.set_year() or 1492)
-        # clamp day
-        if d < 1:
-            d = 1
-        if d > 31:
-            d = 31
-        # if day==31 but month not a festival month, clamp to 30
+        if d < 1: d = 1
+        if d > 31: d = 31
         if d == 31 and m not in FESTIVALS:
             d = 30
         current.set({"year": y, "month": m, "day": d})
 
-    # Persist current date to Supabase state
     @reactive.Effect
     @reactive.event(input.btn_save_current)
     async def _save_current():
@@ -304,7 +342,6 @@ def server(input, output, session):
         else:
             ui.notification_show("Failed saving current date (check RLS).", type="error")
 
-    # Manual advance +1 day (and persist)
     @reactive.Effect
     @reactive.event(input.btn_advance_one)
     async def _advance_one():
@@ -321,20 +358,19 @@ def server(input, output, session):
         await reload_events()
         ui.notification_show("Events refreshed.", type="message")
 
-    # Day click handlers (including festival 31)
+    # Day click handlers (including festival 31) -> show Day Details (list)
     def make_day_handler(m: int, d: int):
         trigger = getattr(input, f"m{m}_d{d}")
         @reactive.Effect
         @reactive.event(trigger)
         def _on_click():
-            # select the day and open the add/edit modal
             y = (current.get() or {"year": 1492})["year"]
             current.set({"year": y, "month": m, "day": d})
-            # keep the controls in sync with selection
+            selected_date.set({"year": y, "month": m, "day": d})
             session.send_input_message("set_month", {"value": month_name(m)})
             session.send_input_message("set_day", {"value": d})
             session.send_input_message("set_year", {"value": y})
-            ui.modal_show(event_modal_ui(m, d, y))
+            ui.modal_show(day_details_modal(y, m, d))
 
     for m in range(1, 13):
         for d in range(1, DAYS_PER_MONTH + 1):
@@ -342,34 +378,31 @@ def server(input, output, session):
         if m in FESTIVALS:
             make_day_handler(m, 31)
 
-    # Modal UI + save/cancel
-    def event_modal_ui(m: int, d: int, y: int) -> ui.TagChild:
-        return ui.modal(
-            ui.h5(f"Add / Edit Event — {month_name(m)} {d}, {y}"),
-            ui.row(
-                ui.input_select("ev_month", "Month", choices=MONTHS, selected=month_name(m)),
-                ui.input_numeric("ev_day", "Day", value=d, min=1, max=31),
-                ui.input_numeric("ev_year", "Year", value=y),
-            ),
-            ui.input_text("ev_title", "Title", value=""),
-            ui.input_text_area("ev_desc", "Description", value=""),
-            ui.input_date("ev_real_date", "Real-world date", value=date.today()),
-            footer=ui.div(
-                ui.input_action_button("ev_save", "Save", class_="btn btn-primary me-2"),
-                ui.input_action_button("ev_cancel", "Cancel", class_="btn btn-secondary"),
-            ),
-            easy_close=True,
-            size="l",
-        )
-
+    # Day Details modal actions
     @reactive.Effect
-    @reactive.event(input.ev_cancel)
-    def _cancel():
+    @reactive.event(input.ev_list_close)
+    def _close_list():
         ui.modal_remove()
 
     @reactive.Effect
+    @reactive.event(input.ev_add_new)
+    def _from_list_to_form():
+        h = selected_date.get() or {"year": 1492, "month": 1, "day": 1}
+        ui.modal_remove()
+        ui.modal_show(event_form_modal(h["year"], h["month"], h["day"]))
+
+    # Add/Edit form actions
+    @reactive.Effect
+    @reactive.event(input.ev_cancel)
+    def _cancel_form():
+        h = selected_date.get()
+        ui.modal_remove()
+        if h:
+            ui.modal_show(day_details_modal(h["year"], h["month"], h["day"]))
+
+    @reactive.Effect
     @reactive.event(input.ev_save)
-    async def _save():
+    async def _save_event():
         # collect modal inputs
         try:
             m = MONTHS.index(input.ev_month()) + 1
@@ -381,16 +414,13 @@ def server(input, output, session):
         notes = (input.ev_desc() or "").strip() or None
         rdate = _iso(input.ev_real_date())
 
-        # clamp festival logic for day
         if d == 31 and m not in FESTIVALS:
             d = 30
-        if d < 1:
-            d = 1
-        if d > 31:
-            d = 31
+        if d < 1: d = 1
+        if d > 31: d = 31
 
         rec = {
-            "id": generate_event_id(),  # UUID4 string to satisfy UUID column
+            "id": generate_event_id(),  # UUID for UUID column
             "year": y,
             "month": m,
             "day": d,
@@ -406,8 +436,10 @@ def server(input, output, session):
             ui.notification_show("Save failed (see logs / RLS).", type="error")
             return
 
-        ui.modal_remove()
         await reload_events()
+        selected_date.set({"year": y, "month": m, "day": d})
+        ui.modal_remove()
+        ui.modal_show(day_details_modal(y, m, d))
         ui.notification_show("Event saved.", type="message")
 
 # ---------- Create App -------------------------------------------------------
