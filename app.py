@@ -1,11 +1,11 @@
 # app.py
 # ------------------------------------------------------------------------------
-# Harptos – Single "Year at a Glance" layout (no view switching)
-# - 12 months on one page, responsive, no inner scrollbars
-# - Large day tiles with event tiles inside (like the reference image)
-# - Click day -> Day Details (list + Add New); click event -> Edit (labeled)
-# - Manual current-date controls; Save; Advance +1 Day; auto daily +1
-# - Events use UUID4 ids (Postgres UUID)
+# Harptos – Single "Year at a Glance" layout (no inner scrollbars in months)
+# - 12 months on one page, full-width (container-fluid)
+# - Day number pinned top-left; large event tiles inside each day
+# - Click day -> Day Details (list + Add New); click event tile -> Edit
+# - Labeled edit modal; Save/Delete; UUID ids; manual current-date controls
+# - Auto +1 day tick; persists current date in Supabase state table
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -97,7 +97,6 @@ markers: reactive.Value[Dict[str, List[Dict[str, int]]]] = reactive.Value({"new"
 selected_date: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
 selected_event_id: reactive.Value[Optional[str]] = reactive.Value(None)
 
-# For dynamic edit handlers (event tiles)
 _registered_edit_ids: Set[str] = set()
 
 # ---------- Query helpers ----------------------------------------------------
@@ -127,7 +126,7 @@ def event_tiles(y: int, m: int, d: int) -> ui.TagChild:
     """Two-column grid of event tiles; click tile to edit. Shows +N for overflow."""
     day_rows = events_for_day(y, m, d)
     tiles: List[ui.TagChild] = []
-    max_items = 6  # show up to 6 tiles per day; rest summarized as +N
+    max_items = 6  # visible tiles per day; rest summarized as +N
 
     for e in day_rows[:max_items]:
         sid = safe_id(e.get("id"))
@@ -143,7 +142,7 @@ def event_tiles(y: int, m: int, d: int) -> ui.TagChild:
 
 def day_cell(y: int, m: int, d: int, highlight: bool) -> ui.TagChild:
     pid = f"m{m}_d{d}"
-    classes = ["day-btn", "btn", "btn-outline-light"]
+    classes = ["day-badge", "btn", "btn-outline-light"]
     if highlight:
         classes.append("day-current")
     return ui.div(
@@ -160,7 +159,7 @@ def festival_cell(y: int, m: int) -> ui.TagChild:
     pid = f"m{m}_d31"
     return ui.div(
         ui.div(
-            ui.input_action_button(pid, "31", class_="btn btn-outline-light day-btn"),
+            ui.input_action_button(pid, "31", class_="day-badge btn btn-outline-light"),
             ui.div(label, class_="festival-label"),
             class_="festival-wrap",
         ),
@@ -278,7 +277,8 @@ page = ui.page_fluid(
         ),
         class_="container mt-3"
     ),
-    ui.div(ui.output_ui("calendar"), class_="container"),
+    # >>> Full-width calendar (no fixed max-width gutters) <<<
+    ui.div(ui.output_ui("calendar"), class_="container-fluid px-3"),
 )
 
 # ---------- Server -----------------------------------------------------------
@@ -328,8 +328,7 @@ def server(input, output, session):
 
     @render.ui
     def calendar():
-        # Depend on events so the UI re-renders when events change
-        _ = events.get()
+        _ = events.get()  # re-render when events change
         h = current.get()
         return ui.div(*[month_card(m, h) for m in range(1, 13)], class_="months-wrap")
 
@@ -378,7 +377,7 @@ def server(input, output, session):
         await reload_events()
         ui.notification_show("Events refreshed.", type="message")
 
-    # Day click handlers (1..30 and 31 if festival)
+    # Day click handlers
     def make_day_handler(m: int, d: int):
         trigger = getattr(input, f"m{m}_d{d}")
         @reactive.Effect
@@ -398,7 +397,7 @@ def server(input, output, session):
         if m in FESTIVALS:
             make_day_handler(m, 31)
 
-    # Install dynamic edit handlers for existing events (tiles + list)
+    # Event edit handlers (tiles + list)
     @reactive.Effect
     def _install_edit_handlers():
         for e in (events.get() or []):
@@ -421,7 +420,7 @@ def server(input, output, session):
                 ))
             _registered_edit_ids.add(sid)
 
-    # Day list modal actions
+    # List modal actions
     @reactive.Effect
     @reactive.event(input.ev_list_close)
     def _close_list():
@@ -435,7 +434,7 @@ def server(input, output, session):
         ui.modal_remove()
         ui.modal_show(event_form_modal(h["year"], h["month"], h["day"]))
 
-    # Add/Edit form actions
+    # Edit form actions
     @reactive.Effect
     @reactive.event(input.ev_cancel)
     def _cancel_form():
