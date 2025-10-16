@@ -1,6 +1,8 @@
 /* www/styles.css
-   Year view stays compact; Month zoom matches your big-tile example.
-   Also: readable modal labels/inputs (light bg, dark text).
+   Single "Year at a Glance" layout like the reference image.
+   - 12 months visible; no inner scrollbars.
+   - Day cells are big; events are 2-column tiles inside each day.
+   - Modals have light background with dark labels/inputs (readable).
 ------------------------------------------------------------------ */
 :root{
   --fg: #fff;
@@ -8,11 +10,13 @@
   --panel-2: #2f5a88;
   --border: rgba(255,255,255,0.25);
   --highlight: #b7ffb1;
-  --chip: #cfe8ff;
-  --chip-text: #0f1c2b;
-  --chip-border: #a9c7ef;
+  --tile: #d3ecff;
+  --tile-border: #b6d7ff;
+  --tile-text: #0e233a;
 
-  --zoom-top-offset: 250px; /* header + controls + view picker */
+  /* Reserve vertical space for header + controls to keep 12 months on screen */
+  --months-top-offset: 260px;
+  --grid-gap: 16px;
 }
 
 html, body{
@@ -21,7 +25,7 @@ html, body{
   min-height: 100%;
 }
 
-/* --- Top bar --- */
+/* Top bar */
 .navbar, .navbar * { color: var(--fg) !important; }
 .navbar{
   background: linear-gradient(180deg,#123a63 0%, #0f2f52 100%);
@@ -30,17 +34,22 @@ html, body{
   border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* ============ YEAR VIEW (12 months) ============ */
+/* ===================== YEAR GRID ===================== */
 .months-wrap{
+  height: calc(100vh - var(--months-top-offset));
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  grid-template-rows: repeat(3, 1fr);   /* ensures 3 rows fill the viewport */
+  gap: var(--grid-gap);
 }
-@media (max-width: 1400px){ .months-wrap{ grid-template-columns: repeat(3, 1fr);} }
-@media (max-width: 992px){  .months-wrap{ grid-template-columns: repeat(2, 1fr);} }
-@media (max-width: 640px){  .months-wrap{ grid-template-columns: 1fr;} }
+@media (max-width: 1500px){
+  /* If the screen is smaller, still try to keep 4×3; reduce gaps slightly */
+  :root{ --grid-gap: 12px; }
+}
 
+/* Month card fills its grid cell */
 .glass.month-card{
+  height: 100%;
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -57,112 +66,106 @@ html, body{
   color: #e9f2ff;
   font-weight: 600;
   padding: 4px 0 8px 0;
-  font-size: clamp(13px, 1.1vw, 18px);
+  font-size: clamp(13px, 1.05vw, 18px);
 }
 
-.days-wrap{ display: grid; grid-template-rows: repeat(3, 1fr); gap: 6px; min-height: 0; }
-.day-row{  display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; min-height: 0; }
+/* 3 day rows each taking equal height */
+.days-wrap{
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 8px;
+  min-height: 0;
+}
+.day-row{
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 8px;
+  min-height: 0;
+}
 
+/* Day cell */
 .day-cell{
   position: relative;
-  border-radius: 6px;
-  padding: 2px;
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255,255,255,0.07);
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  overflow: hidden;
+  gap: 8px;
+  overflow: hidden;           /* event tiles clip instead of scrolling */
 }
 
+/* Day number */
 .day-btn{
-  width: max-content;            /* fits 2 digits */
+  width: max-content;
   max-width: 100%;
-  min-width: 2.6ch;
+  min-width: 2.6ch;           /* fits “31” */
   padding: 0 .6ch;
-  height: 24px;
-  font-size: clamp(11px, .95vw, 13px);
-  line-height: 22px;
+  height: 28px;
+  font-size: clamp(12px, .95vw, 16px);
+  line-height: 26px;
   color: #e7f0ff;
   border: 1px solid rgba(255,255,255,0.25);
   background: transparent;
   border-radius: 6px;
-  flex: 0 0 auto;
   white-space: nowrap;
 }
 .day-btn:hover{ filter: brightness(1.1); }
-.day-current{ background: var(--highlight) !important; color: #0a2f0a !important; border-color: #7fdc72 !important; font-weight: 700; }
+.day-current{
+  background: var(--highlight) !important;
+  color: #0a2f0a !important;
+  border-color: #7fdc72 !important;
+  font-weight: 700;
+}
 
-.pip-wrap{ position: absolute; right: 6px; top: 6px; display: flex; gap: 3px; }
+/* Moon pips */
+.pip-wrap{
+  position: absolute; right: 8px; top: 8px; display: flex; gap: 4px;
+}
 .pip{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.pip-new{ background: #e6fff8; box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset; }
-.pip-full{ background: #161616; box-shadow: 0 0 0 1px rgba(255,255,255,.6) inset; }
+.pip-new{ background:#e6fff8; box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset; }
+.pip-full{ background:#161616; box-shadow: 0 0 0 1px rgba(255,255,255,.6) inset; }
 
-.festival-row{ display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
+/* Festival row with day 31 */
+.festival-row{
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 8px;
+}
 .festival-cell .day-btn{ width: max-content; min-width: 2.6ch; }
 .festival-wrap{ display: inline-flex; align-items: center; gap: 8px; }
-.festival-label{ font-size: clamp(10px, .85vw, 12px); color: #eaf5ff; }
+.festival-label{ font-size: clamp(11px, .9vw, 13px); color: #eaf5ff; }
 
-/* Chips in Year view: compact */
-.chip-stack{ display: flex; flex-direction: column; gap: 4px; margin-top: 2px; min-height: 0; }
-.chip{
+/* ======= Event tiles (two-column grid) ======= */
+.ev-grid{
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-auto-rows: 64px;       /* tile height */
+  gap: 8px;
+  min-height: 0;
+}
+.ev-tile{
   display: block;
   width: 100%;
   text-align: left;
-  padding: 4px 6px;
-  border-radius: 6px;
-  background: var(--chip);
-  color: var(--chip-text) !important;
-  border: 1px solid var(--chip-border);
-  font-size: clamp(10px, .85vw, 12px);
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chip.btn{ border-color: var(--chip-border); }
-.chip-more{ background: rgba(255,255,255,0.2); color: #fff !important; text-align: center; }
-
-/* ============ MONTH ZOOM (full-screen month, large tiles) ============ */
-.month-zoom-container{
-  height: calc(100vh - var(--zoom-top-offset));
-}
-.month-zoom.month-card{
-  height: 100%;
-}
-.month-zoom .days-wrap{
-  height: calc(100% - 36px);   /* leave space for festival row/header */
-}
-.month-zoom .day-row{
-  grid-template-columns: repeat(10, 1fr);
-  gap: 10px;
-}
-.month-zoom .day-cell{
-  padding: 6px;
-  gap: 8px;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.06);
-}
-.month-zoom .day-btn{
-  height: 28px;
-  font-size: clamp(12px, 1vw, 16px);
-  line-height: 26px;
-}
-.month-zoom .chip{
-  background: #d3ecff;
-  border-color: #b6d7ff;
-  color: #0e233a !important;
-  font-size: clamp(12px, 1.05vw, 16px);
-  white-space: normal;       /* wrap multi-line */
-  min-height: 64px;          /* big tile */
-  line-height: 1.25;
   padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--tile);
+  color: var(--tile-text) !important;
+  border: 1px solid var(--tile-border);
+  font-size: clamp(11px, .9vw, 14px);
+  line-height: 1.2;
+  white-space: normal;        /* allow wrapping */
+  overflow: hidden;
 }
-.month-zoom .chip-more{
+.ev-more{
   background: rgba(255,255,255,0.25);
   color: #fff !important;
+  text-align: center;
 }
 
-/* --- Modal readability (labels/inputs dark text on light bg) --- */
+/* ---------- Modals: legible labels & inputs ---------- */
 .modal .modal-content{ background: #f7f9fc; color: #0f1c2b; }
 .modal .form-label, .modal label{ color:#0f1c2b !important; font-weight:700; }
 .modal .form-control, .modal .form-select{ background:#ffffff; color:#0f1c2b !important; border-color:#c7d1e3; }
