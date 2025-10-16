@@ -1,4 +1,5 @@
-/* Full-width year grid; square day tiles; compact event tiles (smaller text) */
+/* Full-width year grid; square day tiles; event chips auto-scale.
+   Uses container query units (cqw/cqh) so chip font/padding respond to tile size. */
 :root{
   --fg: #fff;
   --panel: #35669b;
@@ -28,14 +29,13 @@ html, body{
   border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* ======= YEAR GRID (wider month cards) ======= */
+/* ======= YEAR GRID (3 months per row; 4 on ultra-wide) ======= */
 .months-wrap{
   display: grid;
-  grid-template-columns: repeat(3, 1fr); /* wider than 4 -> bigger day squares */
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--grid-gap);
   width: 100%;
 }
-/* On ultra-wide screens we can afford 4 across */
 @media (min-width: 2400px){ .months-wrap{ grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 1100px){ .months-wrap{ grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px){  .months-wrap{ grid-template-columns: 1fr; } }
@@ -61,17 +61,18 @@ html, body{
 .days-wrap{ display: grid; grid-template-rows: auto auto auto; gap: 10px; }
 .day-row{  display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; }
 
-/* Day cell: now SQUARE using aspect-ratio; room at the top for the badge */
+/* Day cell: square and acts as a container for CQ units */
 .day-cell{
   position: relative;
   background: rgba(255,255,255,0.07);
   border-radius: 12px;
-  padding: 36px 10px 10px 10px; /* top pad keeps badge off content */
-  aspect-ratio: 1 / 1;         /* <<< makes each day tile square */
+  padding: 36px 10px 10px 10px;
+  aspect-ratio: 1 / 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow: hidden;             /* never scroll inside month */
+  overflow: hidden;         /* never scroll inside month */
+  container-type: size;     /* <<< enables cqw/cqh units for children */
 }
 
 /* Day badge pinned top-left */
@@ -85,66 +86,4 @@ html, body{
   font-size: clamp(12px, .95vw, 16px);
   line-height: 26px;
   color: #e7f0ff;
-  border: 1px solid rgba(255,255,255,0.35);
-  background: rgba(0,0,0,0.15);
-  border-radius: 8px;
-  white-space: nowrap;
-}
-.day-badge:hover{ filter: brightness(1.1); }
-.day-current{
-  background: var(--highlight) !important;
-  color: #0a2f0a !important;
-  border-color: #7fdc72 !important;
-  font-weight: 700;
-}
-
-/* Moon pips pinned top-right */
-.pip-wrap{ position: absolute; right: 8px; top: 10px; display: flex; gap: 4px; z-index: 2; }
-.pip{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.pip-new{  background:#e6fff8; box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset; }
-.pip-full{ background:#161616; box-shadow: 0 0 0 1px rgba(255,255,255,.6) inset; }
-
-/* Intercalary 31 row */
-.festival-row{ display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; }
-.festival-cell{ aspect-ratio: auto; min-height: 90px; } /* don't force square here */
-.festival-wrap{ display: inline-flex; align-items: center; gap: 8px; }
-.festival-label{ font-size: clamp(12px, .95vw, 14px); color: #eaf5ff; }
-
-/* Event tiles: compact 1-column list with smaller text */
-.ev-grid{
-  display: grid;
-  grid-template-columns: 1fr;   /* <<< 1 column for better fit */
-  grid-auto-rows: 36px;         /* <<< compact tile height */
-  gap: 6px;
-}
-.ev-tile{
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: var(--tile);
-  color: var(--tile-text) !important;
-  border: 1px solid var(--tile-border);
-  font-size: clamp(10px, .8vw, 12px);  /* <<< smaller text */
-  line-height: 1.25;
-  white-space: normal;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  word-break: break-word;
-}
-.ev-more{
-  background: rgba(255,255,255,0.25);
-  color: #fff !important;
-  text-align: center;
-}
-
-/* Modals: legible labels & inputs */
-.modal .modal-content{ background: #f7f9fc; color: #0f1c2b; }
-.modal .form-label, .modal label{ color:#0f1c2b !important; font-weight:700; }
-.modal .form-control, .modal .form-select{ background:#ffffff; color:#0f1c2b !important; border-color:#c7d1e3; }
-.modal .form-control::placeholder{ color:#5a6b85; }
-
-.edit-link{ color:#123a63 !important; text-decoration: none; }
-.text-on-dark{ color: var(--fg) !important; }
-.muted{ opacity: .75; }
+  border: 1px solid rgba(255
