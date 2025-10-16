@@ -1,5 +1,5 @@
-/* Full-width year grid; square day tiles; event chips auto-scale.
-   Uses container query units (cqw/cqh) so chip font/padding respond to tile size. */
+/* Full-width year grid; square day tiles; chips auto-resize text to fit.
+   Uses container query units so chip text/padding scale with each day cell. */
 :root{
   --fg: #fff;
   --panel: #35669b;
@@ -29,7 +29,7 @@ html, body{
   border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* ======= YEAR GRID (3 months per row; 4 on ultra-wide) ======= */
+/* ======= YEAR GRID (3 months per row by default) ======= */
 .months-wrap{
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -61,18 +61,20 @@ html, body{
 .days-wrap{ display: grid; grid-template-rows: auto auto auto; gap: 10px; }
 .day-row{  display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; }
 
-/* Day cell: square and acts as a container for CQ units */
+/* Day tile:
+   - square via aspect-ratio
+   - container-type enables cqw units for responsive chip text/padding */
 .day-cell{
   position: relative;
   background: rgba(255,255,255,0.07);
   border-radius: 12px;
-  padding: 36px 10px 10px 10px;
-  aspect-ratio: 1 / 1;
+  padding: 36px 10px 10px 10px;           /* top pad keeps badge off content */
+  aspect-ratio: 1 / 1;                    /* square tiles */
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow: hidden;         /* never scroll inside month */
-  container-type: size;     /* <<< enables cqw/cqh units for children */
+  overflow: hidden;                        /* never scroll inside month */
+  container-type: inline-size;             /* <<< enables cqw units below */
 }
 
 /* Day badge pinned top-left */
@@ -83,7 +85,79 @@ html, body{
   padding: 0 .6ch;
   height: 28px;
   min-width: 2.6ch;
-  font-size: clamp(12px, .95vw, 16px);
+  font-size: clamp(11px, 2.2cqw, 16px);    /* scales with day width */
   line-height: 26px;
   color: #e7f0ff;
-  border: 1px solid rgba(255
+  border: 1px solid rgba(255,255,255,0.35);
+  background: rgba(0,0,0,0.15);
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.day-badge:hover{ filter: brightness(1.1); }
+.day-current{
+  background: var(--highlight) !important;
+  color: #0a2f0a !important;
+  border-color: #7fdc72 !important;
+  font-weight: 700;
+}
+
+/* Moon pips pinned top-right */
+.pip-wrap{ position: absolute; right: 8px; top: 10px; display: flex; gap: 4px; z-index: 2; }
+.pip{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.pip-new{  background:#e6fff8; box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset; }
+.pip-full{ background:#161616; box-shadow: 0 0 0 1px rgba(255,255,255,.6) inset; }
+
+/* Intercalary 31 row */
+.festival-row{ display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; }
+.festival-cell{ aspect-ratio: auto; min-height: 100px; }
+.festival-wrap{ display: inline-flex; align-items: flex-start; gap: 8px; }
+.festival-label{
+  font-size: clamp(11px, 2.3cqw, 14px);    /* scales with cell width */
+  color: #eaf5ff;
+  line-height: 1.15;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Event tiles:
+   - 1 column compact list
+   - auto-rows shrink/expand
+   - font size & padding scale with container width
+   - clamp to 2 text lines (no overflow) */
+.ev-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-auto-rows: minmax(28px, auto);
+  gap: 6px;
+}
+.ev-tile{
+  display: -webkit-box;                    /* line-clamp support */
+  -webkit-line-clamp: 2;                   /* max 2 lines of text */
+  -webkit-box-orient: vertical;
+  width: 100%;
+  padding: clamp(4px, 1.2cqw, 10px) clamp(6px, 1.6cqw, 12px);
+  border-radius: 8px;
+  background: var(--tile);
+  color: var(--tile-text) !important;
+  border: 1px solid var(--tile-border);
+  font-size: clamp(9px, 2.6cqw, 13px);     /* <<< scales to fit the tile */
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+}
+.ev-more{
+  background: rgba(255,255,255,0.25);
+  color: #fff !important;
+  text-align: center;
+}
+
+/* Modals: legible labels & inputs */
+.modal .modal-content{ background: #f7f9fc; color: #0f1c2b; }
+.modal .form-label, .modal label{ color:#0f1c2b !important; font-weight:700; }
+.modal .form-control, .modal .form-select{ background:#ffffff; color:#0f1c2b !important; border-color:#c7d1e3; }
+.modal .form-control::placeholder{ color:#5a6b85; }
+
+.edit-link{ color:#123a63 !important; text-decoration: none; }
+.text-on-dark{ color: var(--fg) !important; }
+.muted{ opacity: .75; }
