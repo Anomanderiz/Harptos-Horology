@@ -272,7 +272,8 @@ def server(input, output, session):
         h=current.get()
         return ui.div(*[month_card(m,h) for m in range(1,13)], class_="months-wrap")
 
-    @reactive.Effect @reactive.event(input.btn_apply_current)
+    @reactive.Effect
+    @reactive.event(input.btn_apply_current)
     def _apply_current():
         try: m=MONTHS.index(input.set_month())+1
         except ValueError: m=1
@@ -282,27 +283,35 @@ def server(input, output, session):
         if d==31 and m not in FESTIVALS: d=30
         current.set({"year":y,"month":m,"day":d})
 
-    @reactive.Effect @reactive.event(input.btn_save_current)
+    @reactive.Effect
+    @reactive.event(input.btn_save_current)
     async def _save_current():
         h=current.get()
-        if not h: return ui.notification_show("Nothing to save yet.", type="warning")
+        if not h: 
+            ui.notification_show("Nothing to save yet.", type="warning")
+            return
         ok=await db.set_state("current_date", h)
         ui.notification_show("Current date saved." if ok else "Failed saving current date (check RLS).",
                              type="message" if ok else "error")
 
-    @reactive.Effect @reactive.event(input.btn_advance_one)
+    @reactive.Effect
+    @reactive.event(input.btn_advance_one)
     async def _advance_one():
         h=current.get()
         if not h: return
         nh=advance_one(h); current.set(nh); await db.set_state("current_date", nh)
 
-    @reactive.Effect @reactive.event(input.btn_refresh_events)
-    async def _re(): await reload_events(); ui.notification_show("Events refreshed.", type="message")
+    @reactive.Effect
+    @reactive.event(input.btn_refresh_events)
+    async def _re():
+        await reload_events()
+        ui.notification_show("Events refreshed.", type="message")
 
     # Day click handlers
     def make_day_handler(m:int,d:int):
         trigger=getattr(input,f"m{m}_d{d}")
-        @reactive.Effect @reactive.event(trigger)
+        @reactive.Effect
+        @reactive.event(trigger)
         def _on_click():
             y=(current.get() or {"year":1492})["year"]
             current.set({"year":y,"month":m,"day":d})
@@ -322,7 +331,8 @@ def server(input, output, session):
             sid=safe_id(e.get("id"))
             if sid in _registered_edit_ids: continue
             trigger=getattr(input, f"edit_{sid}")
-            @reactive.Effect @reactive.event(trigger)
+            @reactive.Effect
+            @reactive.event(trigger)
             def _open_editor(_e=e):
                 y=int(_e.get("year",1492)); m=int(_e.get("month",1)); d=int(_e.get("day",1))
                 selected_date.set({"year":y,"month":m,"day":d}); selected_event_id.set(str(_e.get("id")))
@@ -335,34 +345,43 @@ def server(input, output, session):
                 ))
             _registered_edit_ids.add(sid)
 
-    @reactive.Effect @reactive.event(input.ev_list_close)
-    def _close_list(): ui.modal_remove()
+    @reactive.Effect
+    @reactive.event(input.ev_list_close)
+    def _close_list():
+        ui.modal_remove()
 
-    @reactive.Effect @reactive.event(input.ev_add_new)
+    @reactive.Effect
+    @reactive.event(input.ev_add_new)
     def _add_new_from_list():
         h=selected_date.get() or {"year":1492,"month":1,"day":1}
         selected_event_id.set(None); ui.modal_remove()
         ui.modal_show(event_form_modal(h["year"],h["month"],h["day"]))
 
-    @reactive.Effect @reactive.event(input.ev_cancel)
+    @reactive.Effect
+    @reactive.event(input.ev_cancel)
     def _cancel_form():
         h=selected_date.get(); ui.modal_remove()
         if h: ui.modal_show(day_details_modal(h["year"],h["month"],h["day"]))
 
-    @reactive.Effect @reactive.event(input.ev_delete)
+    @reactive.Effect
+    @reactive.event(input.ev_delete)
     async def _delete_event():
         eid=selected_event_id.get()
-        if not eid: return ui.notification_show("Nothing to delete.", type="warning")
+        if not eid: 
+            ui.notification_show("Nothing to delete.", type="warning")
+            return
         try: await anyio.to_thread.run_sync(lambda: db.delete_event(eid))
         except Exception as e:
             print("[App] delete_event failed:", repr(e))
-            return ui.notification_show("Delete failed (see logs / RLS).", type="error")
+            ui.notification_show("Delete failed (see logs / RLS).", type="error")
+            return
         await reload_events()
         h=selected_date.get(); ui.modal_remove()
         if h: ui.modal_show(day_details_modal(h["year"],h["month"],h["day"]))
         ui.notification_show("Event deleted.", type="message")
 
-    @reactive.Effect @reactive.event(input.ev_save)
+    @reactive.Effect
+    @reactive.event(input.ev_save)
     async def _save_event():
         try: m=MONTHS.index(input.ev_month())+1
         except ValueError: m=(current.get() or {"month":1})["month"]
@@ -380,7 +399,8 @@ def server(input, output, session):
         try: await anyio.to_thread.run_sync(lambda: db.upsert_event(rec))
         except Exception as e:
             print("[App] upsert_event failed:", repr(e))
-            return ui.notification_show("Save failed (see logs / RLS).", type="error")
+            ui.notification_show("Save failed (see logs / RLS).", type="error")
+            return
         await reload_events()
         selected_date.set({"year":y,"month":m,"day":d}); selected_event_id.set(None)
         ui.modal_remove(); ui.modal_show(day_details_modal(y,m,d))
