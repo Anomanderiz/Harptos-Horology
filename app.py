@@ -18,12 +18,6 @@ from shiny import App, ui, render, reactive
 import anyio
 
 from supa import SupaClient, HarptosDate, HarptosDateDict, step_harptos
-from shiny import render
-
-@render.ui
-def current_date_label():
-    # return any tag/HTML here
-    return ui.span("…computed label…")
 
 # ------------ Config ---------------------------------------------------------
 
@@ -178,13 +172,9 @@ page = ui.page_fluid(
 
 # ------------ Renderers ------------------------------------------------------
 
-@render.text
+@render.ui
 def current_date_label():
-    h = current.get()
-    if not h:
-        return "Current date: —"
-    month_name = _month_name_from_index(h["month"])
-    return f"Current date: {month_name} {h['day']}, {h['year']}"
+    return ui.span("Current date: …")
 
 @render.ui
 def calendar_ui():
