@@ -35,7 +35,7 @@ MONTHS = [
 ]
 DAYS_PER_MONTH = 30
 APP_DIR = Path(__file__).resolve().parent
-app = App(page, server, static_assets=str(APP_DIR / "www"))
+app = App(build_ui(), server, static_assets=str(APP_DIR / "www"))
 
 def harptos_to_ordinal(h: HarptosDate) -> int:
     return (h["year"] * 360) + (h["month"] - 1) * 30 + (h["day"] - 1)
