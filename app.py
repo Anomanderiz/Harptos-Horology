@@ -1,346 +1,321 @@
+# app.py
+# ----------------------------------------------------------------------
+# Harptos – Campaign Calendar (Shiny for Python)
+# - Fixes illegible header (white on dark)
+# - Wires header buttons (Set Current Date, Jump to Today, Refresh Events)
+# - Clickable 30-day grid opens a robust modal
+# - Defensive DB calls so "Save" never crashes the session
+# - Loads CSS from absolute /www path for reliable deploys
+# ----------------------------------------------------------------------
+
 from __future__ import annotations
 
 import os
-import math
-from datetime import datetime, timedelta, timezone, date
-from typing import Dict, Any
+from datetime import date
+from typing import List, Dict, Any
 
-from shiny import App, reactive, render, ui, Session
-from shiny.types import ImgData
-from htmltools import HTML
-from pathlib import Path
+from shiny import App, ui, render, reactive
+import anyio
 
-# --- Supabase helper ---------------------------------------------------------
-from supa import SupaClient, HarptosDate, step_harptos
+from supa import SupaClient, HarptosDate, HarptosDateDict, step_harptos
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", os.getenv("SUPABASE_KEY", ""))
+# ------------ Config ---------------------------------------------------------
 
-db = SupaClient(SUPABASE_URL, SUPABASE_KEY)
-
-# --- Harptos basics (no intercalaries) --------------------------------------
-MONTHS = [
+# 12 months (30 days each)
+MONTHS: List[str] = [
     "Hammer, Deepwinter",
     "Alturiak, The Claw of Winter",
     "Ches, The Claw of the Sunsets",
-    "Tarsakh, The Claw of the Storms",
+    "Tarsakh, The Claw of Storms",
     "Mirtul, The Melting",
     "Kythorn, The Time of Flowers",
     "Flamerule, Summertide",
     "Eleasis, Highsun",
     "Eleint, The Fading",
-    "Marpenoth, Leaffall",
+    "Marpenoth, Leafall",
     "Uktar, The Rotting",
     "Nightal, The Drawing Down",
 ]
-DAYS_PER_MONTH = 30
+DAYS_PER_MONTH: int = 30
 
-def harptos_to_ordinal(h: HarptosDate) -> int:
-    return (h["year"] * 360) + (h["month"] - 1) * 30 + (h["day"] - 1)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
-def ordinal_to_harptos(n: int) -> HarptosDate:
-    year = n // 360
-    dyear = n % 360
-    month = dyear // 30 + 1
-    day = dyear % 30 + 1
-    return {"year": year, "month": month, "day": day}
+# Absolute path to /www for static assets (CSS, images, etc.)
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "www")
 
-# --- UI fragments ------------------------------------------------------------
+# ------------ App state ------------------------------------------------------
 
-def day_cell(month_idx: int, day: int, current: HarptosDate, has_event: bool) -> HTML:
-    classes = ["day"]
-    if current["month"] == month_idx and current["day"] == day:
-        classes.append("current")
-    if has_event:
-        classes.append("has-event")
-    # Custom data attrs; clicking is handled by JS to set Shiny input 'clicked_day'
-    id_value = f"d-{month_idx}-{day}"
-    return ui.div(
-        {"class": " ".join(classes), "data-month": month_idx, "data-day": day, "id": id_value},
-        str(day)
-    )
+# Current Harptos date
+current: reactive.Value[HarptosDateDict | None] = reactive.Value(None)
 
-def month_grid(month_idx: int, current: HarptosDate, events_index: Dict[str, int]) -> HTML:
-    # events_index key "m-d" -> count
-    cells = []
-    for d in range(1, DAYS_PER_MONTH + 1):
-        key = f"{month_idx}-{d}"
-        has_ev = key in events_index and events_index[key] > 0
-        cells.append(day_cell(month_idx, d, current, has_ev))
-    return ui.div(
-        {"class": "month"},
-        ui.div({"class": "month-title"}, MONTHS[month_idx-1]),
-        ui.div({"class": "grid"}, *cells),
-    )
+# "Real-world mapped" Harptos today (simple mapping)
+today_harptos: reactive.Value[HarptosDateDict | None] = reactive.Value(None)
 
-# --- Application state -------------------------------------------------------
+# Cached events
+events: reactive.Value[List[Dict[str, Any]]] = reactive.Value([])
 
-def default_current_date() -> HarptosDate:
-    # If no state in DB, start at 1492 Alturiak 3 (arbitrary but sensible)
-    return {"year": 1492, "month": 2, "day": 3}
+# DB client
+db = SupaClient(SUPABASE_URL, SUPABASE_KEY, schema="public",
+                state_table="state", events_table="events")
 
-# --- Build UI ----------------------------------------------------------------
+# ------------ UI helpers -----------------------------------------------------
 
-def build_ui():
-    return ui.page_fluid(
-        ui.tags.link(rel="stylesheet", href="styles.css"),
-        # Inject JS to capture clicks on day cells and push to Shiny input
-        ui.tags.script(
-            """
-            document.addEventListener('click', (ev) => {
-              const el = ev.target.closest('.day');
-              if (!el) return;
-              const m = parseInt(el.dataset.month);
-              const d = parseInt(el.dataset.day);
-              // forward to shiny
-              Shiny.setInputValue('clicked', {month: m, day: d, nonce: Math.random()});
-            });
-            """
+def _month_index_from_name(name: str) -> int:
+    try:
+        return MONTHS.index(name) + 1
+    except ValueError:
+        return 1
+
+def _month_name_from_index(idx: int) -> str:
+    if 1 <= idx <= len(MONTHS):
+        return MONTHS[idx - 1]
+    return MONTHS[0]
+
+def _map_date_to_harptos(d: date) -> HarptosDateDict:
+    # Simple mapping: real month -> 1..12, clamp day to 30
+    m = max(1, min(12, d.month))
+    day = min(DAYS_PER_MONTH, max(1, d.day))
+    # Keep a canonical FR year unless you prefer realtime
+    y = 1492
+    return HarptosDate(year=y, month=m, day=day)
+
+def event_modal(default: Dict[str, Any] | None = None):
+    d = default or {}
+    return ui.modal(
+        ui.row(
+            ui.input_select("ev_month", "Month", choices=MONTHS,
+                            selected=d.get("month_name", _month_name_from_index(d.get("month", 1)))),
+            ui.input_numeric("ev_day", "Day", value=d.get("day", 1), min=1, max=DAYS_PER_MONTH),
+            ui.input_numeric("ev_year", "Year", value=d.get("year", 1492)),
         ),
-        ui.layout_columns(
-            ui.card(
-                ui.card_header("Harptos – Campaign Calendar"),
-                ui.row(
-                    ui.column(3, ui.input_action_button("set_current", "Set Current Date", class_="btn-primary")),
-                    ui.column(3, ui.input_action_button("today_btn", "Jump to Today")),
-                    ui.column(3, ui.input_action_button("refresh", "Refresh Events")),
-                    ui.column(3, ui.output_text("current_lbl")),
-                ),
-                ui.div({"class": "year-grid"}, ui.output_ui("calendar"))
-            ),
-            col_widths={"sm": (12,)},
+        ui.input_text("ev_title", "Title", value=d.get("title", "")),
+        ui.input_text_area("ev_desc", "Description", value=d.get("description", "")),
+        ui.input_date("ev_real_date", "Real-world date", value=d.get("real_date", date.today())),
+        ui.row(
+            ui.input_checkbox("ev_full_day", "All day?", value=bool(d.get("full_day", True))),
+            ui.input_checkbox("ev_recurring", "Recurring yearly?", value=bool(d.get("recurring", False))),
         ),
-        # Hidden modal containers via outputs
-        ui.output_ui("modal_region"),
+        footer=ui.div(
+            ui.input_action_button("ev_save", "Save", class_="btn btn-primary me-2"),
+            ui.modal_button("Close"),
+        ),
+        title="Add / Edit Event",
+        size="l",
+        easy_close=False,
     )
 
-# --- Server ------------------------------------------------------------------
+def day_button(day: int) -> ui.TagChild:
+    return ui.input_action_button(
+        f"day_{day}",
+        f"{day}",
+        class_="btn btn-outline-light day-btn",
+    )
 
-def server(input, output, session: Session):
-    # Reactive: current date (server-truth), pulled/saved in Supabase 'state' table
-    current = reactive.Value(default_current_date())
+def calendar_grid() -> ui.TagChild:
+    # A simple 6x5 grid (30 days) for the current month
+    rows: List[ui.TagChild] = []
+    for r in range(6):
+        start = r * 5 + 1
+        btns = [day_button(d) for d in range(start, start + 5) if d <= DAYS_PER_MONTH]
+        rows.append(ui.div(*btns, class_="d-flex gap-2 mb-2"))
+    return ui.div(*rows, class_="calendar-grid")
 
-    # Load current date and events at startup
-    @reactive.effect
-    async def _init():
-        st = await db.get_state("current_date")
-        if st is not None and isinstance(st, dict):
-            current.set(HarptosDate(year=int(st.get("year", 1492)), month=int(st.get("month", 1)), day=int(st.get("day", 1))))
-        # Ensure auto-advance check once at start
-        await maybe_advance_date()
+# ------------ Server logic ---------------------------------------------------
 
-    # Poll every 10 minutes to auto-advance Harptos by +1 day per real day
-    @reactive.poll(lambda: 600000)  # 600k ms = 10 minutes
-    async def tick():
-        await maybe_advance_date()
+async def reload_events():
+    rows = await db.load_events()
+    events.set(rows or [])
 
-    async def maybe_advance_date():
-        # Last realworld date stored in state 'last_checked'
-        last = await db.get_state("last_checked")
-        today = date.today().isoformat()
-        if last is None or last != today:
-            # How many days difference since last check?
-            # If last is None -> set last to today and +0
-            if last is not None:
-                # advance +1 for each missed real day
-                c = current.get()
-                c_ord = harptos_to_ordinal(c)
-                # crude diff: assume last is iso date
-                try:
-                    d_last = datetime.fromisoformat(last).date()
-                except Exception:
-                    d_last = date.today()
-                delta_days = (date.today() - d_last).days
-                if delta_days < 0:
-                    delta_days = 0
-                for _ in range(delta_days):
-                    c = step_harptos(c, MONTHS, DAYS_PER_MONTH)
-                current.set(c)
-                await db.set_state("current_date", c)
-            await db.set_state("last_checked", today)
+def _iso(d):
+    try:
+        return d.isoformat()
+    except Exception:
+        return None
 
-    # Events cache
-    events = reactive.Value([])  # list of dict rows
+# ------------ Page layout ----------------------------------------------------
 
-    async def reload_events():
-        rows = await db.load_events()
-        events.set(rows or [])
+page = ui.page_fluid(
+    ui.tags.link(rel="stylesheet", href="styles.css"),
 
-    @reactive.effect
-    async def _load_events_once():
-        await reload_events()
+    # Header / top bar
+    ui.div(
+        ui.h5("Harptos – Campaign Calendar", class_="mb-0 me-3"),
+        ui.input_action_button("btn_set_current", "Set Current Date",
+                               class_="btn btn-primary me-2"),
+        ui.input_action_button("btn_jump_today", "Jump to Today",
+                               class_="btn btn-outline-light me-2"),
+        ui.input_action_button("btn_refresh_events", "Refresh Events",
+                               class_="btn btn-outline-light"),
+        ui.div_output("current_date_label", class_="ms-auto text-on-dark"),
+        class_="navbar d-flex align-items-center gap-2 px-3 py-2"
+    ),
 
-    def build_events_index():
-        idx: Dict[str, int] = {}
-        for r in events.get():
-            key = f"{int(r['month'])}-{int(r['day'])}"
-            idx[key] = idx.get(key, 0) + 1
-        return idx
+    ui.layout_columns(
+        # Left: calendar
+        ui.card(
+            ui.card_header("Month"),
+            ui.output_ui("calendar_ui"),
+            class_="glass p-3"
+        ),
+        # Right: (optional) events list snapshot
+        ui.card(
+            ui.card_header("Events (latest 20)"),
+            ui.output_ui("events_list"),
+            class_="glass p-3"
+        ),
+        col_widths=(6,6)
+    ),
+    class_="p-3"
+)
 
-    @output
-    @render.text
-    def current_lbl():
-        c = current.get()
-        return f"Current date: {MONTHS[c['month']-1]} {c['day']}, {c['year']}"
+# ------------ Renderers ------------------------------------------------------
 
-    @output
-    @render.ui
-    def calendar():
-        c = current.get()
-        ev_idx = build_events_index()
-        months = [month_grid(i+1, c, ev_idx) for i in range(12)]
-        # Arrange months in a 3x4 grid
-        return ui.div({"class": "calendar"}, *months)
+@render.text
+def current_date_label():
+    h = current.get()
+    if not h:
+        return "Current date: —"
+    month_name = _month_name_from_index(h["month"])
+    return f"Current date: {month_name} {h['day']}, {h['year']}"
 
-    # Handle clicks on days -> open modal for add/list events
-    @reactive.effect
-    @reactive.event(input.clicked)
-    def _open_modal():
-        payload = input.clicked()
-        if not payload:
-            return
-        m = int(payload["month"])
-        d = int(payload["day"])
-        show_day_modal(m, d)
+@render.ui
+def calendar_ui():
+    return calendar_grid()
 
-    def show_day_modal(month: int, day: int, edit_row: Dict[str, Any] | None = None):
-        title = f"Create / Edit Events — {MONTHS[month-1]} {day}, {current.get()['year']}"
-        # Filter existing events for that day
-        todays = [r for r in events.get() if int(r["month"]) == month and int(r["day"]) == day and int(r["year"]) == current.get()["year"]]
-        # Build a simple table of existing events
-        table = ui.div()
-        if todays:
-            rows = []
-            for r in todays:
-                rows.append(
-                    ui.tr(
-                        ui.td(r.get("title") or "(untitled)"),
-                        ui.td(r.get("real_world_date") or ""),
-                        ui.td(ui.input_action_button(f"edit_{r['id']}", "Edit")),
-                        ui.td(ui.input_action_button(f"delete_{r['id']}", "Delete", class_="btn-danger btn-sm"))
-                    )
-                )
-            table = ui.table({"class": "events-table"},
-                ui.tr(ui.th("Title"), ui.th("Real World Date"), ui.th(), ui.th()),
-                *rows
+@render.ui
+def events_list():
+    rows = events.get()[:20]
+    if not rows:
+        return ui.div("No events yet.", class_="muted")
+    items = []
+    for r in rows:
+        mname = r.get("month_name") or _month_name_from_index(int(r.get("month", 1)))
+        items.append(
+            ui.div(
+                ui.strong(r.get("title", "(Untitled)")),
+                ui.div(f"{mname} {r.get('day', 1)}, {r.get('year', 1492)}"),
+                class_="mb-2"
             )
-        modal = ui.modal(
-            ui.row(
-                ui.column(4, ui.input_select("modal_month", "Month", {i+1: MONTHS[i] for i in range(12)}, selected=month)),
-                ui.column(3, ui.input_numeric("modal_day", "Day", day, min=1, max=30)),
-                ui.column(3, ui.input_numeric("modal_year", "Year", current.get()["year"])),
-            ),
-            ui.input_text("modal_title", "Title"),
-            ui.input_text_area("modal_desc", "Notes", height="120px"),
-            ui.input_date("modal_real", "Real World Date"),
-            ui.row(
-                ui.column(3, ui.input_checkbox("modal_hidden", "Hidden", False)),
-                ui.column(4, ui.input_checkbox("modal_mark_current", "Set as Current Date", False)),
-            ),
-            ui.hr(),
-            ui.h6("Existing events"),
-            table,
-            footer=ui.div(
-                ui.input_action_button("modal_save", "Save", class_="btn-primary"),
-                ui.input_action_button("modal_close", "Close"),
-            ),
-            title=title,
-            easy_close=True,
-            size="l",
         )
-        ui.modal_show(modal)
+    return ui.div(*items)
 
-    @reactive.effect
-    @reactive.event(input.modal_close)
-    def _close():
-        ui.modal_remove()
+# ------------ Effects & Events ----------------------------------------------
 
-    @reactive.effect
-    @reactive.event(input.modal_save)
-    async def _save():
-        m = int(input.modal_month())
-        d = int(input.modal_day())
-        y = int(input.modal_year())
-        row = {
-            "year": y,
-            "month": m,
-            "day": d,
-            "title": input.modal_title() or None,
-            "notes": input.modal_desc() or None,
-            "real_world_date": input.modal_real() or None,
-            "hidden": bool(input.modal_hidden() or False),
+# One-time initialiser
+@reactive.Effect
+async def _init():
+    # Load saved current_date (if present)
+    st = await db.get_state_value("current_date", default=None)
+    if st and isinstance(st, dict):
+        try:
+            current.set(HarptosDate(
+                year=int(st.get("year", 1492)),
+                month=int(st.get("month", 1)),
+                day=int(st.get("day", 1)),
+            ))
+        except Exception:
+            current.set(HarptosDate(year=1492, month=1, day=1))
+    else:
+        current.set(HarptosDate(year=1492, month=1, day=1))
+
+    # Compute a simple mapping for "today"
+    today_harptos.set(_map_date_to_harptos(date.today()))
+
+    # Preload events
+    await reload_events()
+
+# Header buttons
+@reactive.Effect
+@reactive.event(ui.input("btn_set_current"))
+async def _set_current_date():
+    h = current.get()
+    if not h:
+        ui.notification_show("No date to save yet.", type="warning")
+        return
+    ok = await db.set_state("current_date", h)
+    if ok:
+        ui.notification_show("Current date saved.", type="message")
+    else:
+        ui.notification_show("Failed to save current date (check RLS / logs).", type="error")
+
+@reactive.Effect
+@reactive.event(ui.input("btn_jump_today"))
+def _jump_to_today():
+    t = today_harptos.get()
+    if not t:
+        ui.notification_show("No ‘today’ available yet.", type="warning")
+        return
+    current.set(t)
+
+@reactive.Effect
+@reactive.event(ui.input("btn_refresh_events"))
+async def _refresh_events():
+    await reload_events()
+    ui.notification_show("Events refreshed.", type="message")
+
+# Generate click handlers for day_1..day_30
+for _d in range(1, DAYS_PER_MONTH + 1):
+    def _make_handler(day=_d):
+        @reactive.Effect
+        @reactive.event(ui.input(f"day_{day}"))
+        def _open_modal():
+            h = current.get() or HarptosDate(year=1492, month=1, day=1)
+            ui.modal_show(event_modal({
+                "month": h["month"],
+                "month_name": _month_name_from_index(h["month"]),
+                "day": day,
+                "year": h["year"],
+                "title": "",
+                "description": "",
+                "full_day": True,
+                "recurring": False,
+                "real_date": date.today(),
+            }))
+        return _open_modal
+    _make_handler()
+
+# Save from modal
+@reactive.Effect
+@reactive.event(ui.input("ev_save"))
+async def _save_event():
+    # Collect + validate values
+    try:
+        mname = ui.input("ev_month")()
+        rec: Dict[str, Any] = {
+            "month_name": mname,
+            "month": _month_index_from_name(mname),
+            "day": int(ui.input("ev_day")() or 1),
+            "year": int(ui.input("ev_year")() or 1492),
+            "title": (ui.input("ev_title")() or "").strip(),
+            "description": (ui.input("ev_desc")() or "").strip(),
+            "real_date": _iso(ui.input("ev_real_date")()),
+            "full_day": bool(ui.input("ev_full_day")()),
+            "recurring": bool(ui.input("ev_recurring")()),
         }
-        await db.add_event(row)
-        if bool(input.modal_mark_current() or False):
-            current.set({"year": y, "month": m, "day": d})
-            await db.set_state("current_date", current.get())
-        ui.modal_remove()
-        await reload_events()
+    except Exception as e:
+        ui.notification_show(f"Invalid form values: {e!s}", type="error")
+        return
 
-    # Hook dynamic delete/edit buttons
-    @reactive.effect
-    def _hook_row_buttons():
-        for r in events.get():
-            del_id = f"delete_{r['id']}"
-            if session.input(del_id) is not None:
-                @reactive.Effect(priority=1)  # ensure separate closure binding
-                @reactive.event(session.input(del_id))
-                async def _del(row_id=r['id']):
-                    await db.delete_event(row_id)
-                    await reload_events()
+    if not rec["title"]:
+        ui.notification_show("Please enter a title.", type="warning")
+        return
 
-            edit_id = f"edit_{r['id']}"
-            if session.input(edit_id) is not None:
-                @reactive.Effect(priority=1)
-                @reactive.event(session.input(edit_id))
-                def _edit(row=r):
-                    show_day_modal(int(row["month"]), int(row["day"]))
+    # Upsert via supabase client (sync -> off-thread)
+    def _q():
+        return db.client.table(db.events_table).upsert(rec).execute()
 
-    # Set current date manually
-    @reactive.effect
-    @reactive.event(input.set_current)
-    def _open_set_current():
-        c = current.get()
-        ui.modal_show(
-            ui.modal(
-                ui.input_select("set_month", "Month", {i+1: MONTHS[i] for i in range(12)}, selected=c["month"]),
-                ui.input_numeric("set_day", "Day", c["day"], min=1, max=30),
-                ui.input_numeric("set_year", "Year", c["year"]),
-                footer=ui.div(
-                    ui.input_action_button("save_current", "Save", class_="btn-primary"),
-                    ui.input_action_button("cancel_current", "Cancel"),
-                ),
-                title="Set Current Date",
-                easy_close=True
-            )
-        )
+    try:
+        await anyio.to_thread.run_sync(_q)
+    except Exception as e:
+        print("[App] upsert_event failed:", repr(e))
+        ui.notification_show("Save failed (see logs / RLS).", type="error")
+        return
 
-    @reactive.effect
-    @reactive.event(input.cancel_current)
-    def _cancel_current():
-        ui.modal_remove()
+    ui.modal_remove()
+    await reload_events()
+    ui.notification_show("Event saved.", type="message")
 
-    @reactive.effect
-    @reactive.event(input.save_current)
-    async def _save_current():
-        c = {"month": int(input.set_month()), "day": int(input.set_day()), "year": int(input.set_year())}
-        current.set(c)
-        await db.set_state("current_date", c)
-        ui.modal_remove()
+# ------------ App ------------------------------------------------------------
 
-    @reactive.effect
-    @reactive.event(input.today_btn)
-    def _today():
-        # no-op for now; just scroll to the current element
-        ui.update_action_button("today_btn", label="Today ✓")
-
-    @reactive.effect
-    @reactive.event(input.refresh)
-    async def _refresh():
-        await reload_events()
-
-# --- Bootstrapping (keep at the end) -----------------------------------------
-from pathlib import Path as _PathBootstrap
-APP_DIR = _PathBootstrap(__file__).resolve().parent
-page = build_ui()
-app = App(page, server, static_assets=str(APP_DIR / "www"))
+app = App(page, server=None, static_assets=ASSETS_DIR)
