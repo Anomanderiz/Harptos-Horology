@@ -1,5 +1,5 @@
 /* www/styles.css
-   Style to match the screenshot feel + readable modal labels/cards
+   Matches your examples: blue panels, day chips inside cells, readable modals
 ------------------------------------------------------------------ */
 :root{
   --fg: #fff;
@@ -9,6 +9,9 @@
   --glass: rgba(255,255,255,0.06);
   --border: rgba(255,255,255,0.25);
   --highlight: #b7ffb1;
+  --chip: #cfe8ff;
+  --chip-text: #0f1c2b;
+  --chip-border: #a9c7ef;
 }
 
 html, body{
@@ -60,13 +63,19 @@ html, body{
 }
 
 /* Day cells & buttons */
-.day-cell{ position: relative; min-height: 30px; }
+.day-cell{
+  position: relative;
+  min-height: 96px;            /* bigger cell to hold chips like in your example */
+  padding: 2px 2px 6px 2px;
+  border-radius: 6px;
+}
+
 .day-btn{
-  width: 100%;
-  height: 28px;
+  width: 38px;
+  height: 26px;
   padding: 1px 0;
   font-size: 12px;
-  line-height: 24px;
+  line-height: 22px;
   color: #e7f0ff;
   border: 1px solid rgba(255,255,255,0.25);
   background: transparent;
@@ -103,6 +112,33 @@ html, body{
 .festival-wrap{ display: inline-flex; align-items: center; gap: 8px; }
 .festival-label{ font-size: 11px; opacity: .9; white-space: nowrap; color: #eaf5ff; }
 
+/* Event chips inside each day */
+.chip-stack{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.chip{
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--chip);
+  color: var(--chip-text) !important;
+  border: 1px solid var(--chip-border);
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip.btn{ border-color: var(--chip-border); }
+.chip-more{
+  background: rgba(255,255,255,0.2);
+  color: #fff !important;
+  text-align: center;
+}
+
 /* Modal labels & event cards */
 .modal .form-label{ color:#0f2f52; font-weight:600; }
 .event-card{
@@ -116,6 +152,7 @@ html, body{
 .event-title{ font-weight: 700; }
 .event-date{ font-size: 12px; opacity: .8; margin-bottom: 6px; }
 .event-notes{ white-space: pre-wrap; }
+.edit-link{ color:#123a63 !important; text-decoration: none; }
 
 .text-on-dark{ color: var(--fg) !important; }
 .muted{ opacity: .75; }
