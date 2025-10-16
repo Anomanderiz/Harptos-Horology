@@ -34,8 +34,6 @@ MONTHS = [
     "Nightal, The Drawing Down",
 ]
 DAYS_PER_MONTH = 30
-APP_DIR = Path(__file__).resolve().parent
-app = App(build_ui(), server, static_assets=str(APP_DIR / "www"))
 
 def harptos_to_ordinal(h: HarptosDate) -> int:
     return (h["year"] * 360) + (h["month"] - 1) * 30 + (h["day"] - 1)
@@ -115,8 +113,6 @@ def build_ui():
         # Hidden modal containers via outputs
         ui.output_ui("modal_region"),
     )
-
-page = build_ui()
 
 # --- Server ------------------------------------------------------------------
 
@@ -343,4 +339,8 @@ def server(input, output, session: Session):
     async def _refresh():
         await reload_events()
 
-app = App(page, server, static_assets="www")
+# --- Bootstrapping (keep at the end) -----------------------------------------
+from pathlib import Path as _PathBootstrap
+APP_DIR = _PathBootstrap(__file__).resolve().parent
+page = build_ui()
+app = App(page, server, static_assets=str(APP_DIR / "www"))
