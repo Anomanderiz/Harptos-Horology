@@ -1,0 +1,4 @@
+shiny>=1.0.0
+htmltools>=0.6.0
+supabase>=2.6.0
+python-dateutil>=2.9.0
