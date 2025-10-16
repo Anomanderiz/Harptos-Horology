@@ -224,7 +224,7 @@ async def _init():
 
 # Header buttons
 @reactive.Effect
-@reactive.event(ui.input("btn_set_current"))
+input.btn_set_current()
 async def _set_current_date():
     h = current.get()
     if not h:
