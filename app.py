@@ -147,8 +147,15 @@ page = ui.page_fluid(
                                class_="btn btn-outline-light me-2"),
         ui.input_action_button("btn_refresh_events", "Refresh Events",
                                class_="btn btn-outline-light"),
-        ui.div_output("current_date_label", class_="ms-auto text-on-dark"),
-        class_="navbar d-flex align-items-center gap-2 px-3 py-2"
+        ui.div(ui.output_text("current_date_label", inline=True),
+        class_="ms-auto text-on-dark")
+        from shiny import render
+
+        @render.ui
+        def current_date_label():
+        # return any tag/HTML here
+        return ui.span("…computed label…")
+
     ),
 
     ui.layout_columns(
