@@ -1,28 +1,33 @@
-
+# supabase_client.py
 import os
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
-from supabase import create_client, Client
 
-# Load .env for local dev; Posit Cloud will ignore if not present
 load_dotenv(override=False)
 
-_cached: Optional[Client] = None
+_cached: Optional[Any] = None
 
-def get_client() -> Client:
+def get_client() -> Any:
     global _cached
     if _cached is not None:
         return _cached
+
+    try:
+        from supabase import create_client  # lazy import so startup never hard-crashes
+    except Exception as e:
+        raise RuntimeError(
+            "Supabase client library isn’t available. Install `supabase>=2`."
+        ) from e
+
     url = os.getenv("SUPABASE_URL", "").strip()
-    key = (
-        os.getenv("SUPABASE_SERVICE_KEY", "").strip()
-        or os.getenv("SUPABASE_ANON_KEY", "").strip()
-    )
+    key = (os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+           or os.getenv("SUPABASE_ANON_KEY", "").strip())
     if not url or not key:
         raise RuntimeError(
             "Supabase credentials missing. Set SUPABASE_URL and SUPABASE_SERVICE_KEY "
             "(or SUPABASE_ANON_KEY) as environment variables."
         )
+
     _cached = create_client(url, key)
     return _cached
 
