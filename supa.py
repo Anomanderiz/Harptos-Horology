@@ -1,27 +1,42 @@
 # supa.py
 # -----------------------------------------------------------------------------
-# Supabase client + Harptos helpers for Shiny (async-safe wrappers).
+# Supabase wrapper for Harptos calendar
+# - Generates 64-bit event IDs (fits BIGINT)
+# - Safe async helpers
 # -----------------------------------------------------------------------------
 
 from __future__ import annotations
 
-from typing import Any, Optional, TypedDict, List
-import anyio
 import os
+import time
+import random
+from typing import Any, Dict, List, Optional, TypedDict
 
+import anyio
 from supabase import create_client
 
-# Typed structures -------------------------------------------------------------
 
 class HarptosDate(TypedDict):
     year: int
     month: int
     day: int
 
-# -----------------------------------------------------------------------------
+
+def generate_event_id() -> int:
+    """
+    Generate a positive 64-bit integer ID:
+    - Top bits = milliseconds since epoch
+    - Low bits = random entropy
+    Fits signed BIGINT (Postgres) and avoids NULL id inserts.
+    """
+    ts = int(time.time() * 1000)  # ~2^41 space
+    rnd = random.getrandbits(20)  # 20 bits of entropy
+    val = (ts << 20) | rnd        # <= 2^61
+    # Ensure < 2^63-1 (Postgres BIGINT max)
+    return val & 0x7FFFFFFFFFFFFFFF
+
 
 class SupaClient:
-    """Lightweight Supabase wrapper with async-safe helpers."""
     state_table: str = "state"
     events_table: str = "events"
 
@@ -29,34 +44,28 @@ class SupaClient:
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_ANON_KEY")
         if not url or not key:
-            raise RuntimeError(
-                "Missing SUPABASE_URL / SUPABASE_ANON_KEY environment variables."
-            )
+            raise RuntimeError("Missing SUPABASE_URL / SUPABASE_ANON_KEY")
         self.client = create_client(url, key)
 
-    # --- State (key/value) ----------------------------------------------------
+    # -------- state -----------------------------------------------------------
 
     async def get_state_value(self, key: str, default: Optional[Any] = None) -> Optional[Any]:
-        """Return .value JSON for key from state table, else default."""
         def _q():
-            return self.client.table(self.state_table).select("value").eq("key", key).execute()
-
+            return self.client.table(self.state_table).select("value").eq("key", key).limit(1).execute()
         try:
-            resp = await anyio.to_thread.run_sync(_q)
-            data = getattr(resp, "data", None) or []
-            if data:
-                return data[0].get("value", default)
+            res = await anyio.to_thread.run_sync(_q)
+            rows = getattr(res, "data", None) or []
+            if rows:
+                return rows[0].get("value", default)
             return default
-        except Exception:
+        except Exception as e:
+            print("[Supa] get_state_value failed:", repr(e))
             return default
 
     async def set_state(self, key: str, value: Any) -> bool:
-        """Upsert a key/value into the state table."""
         rec = {"key": key, "value": value}
         def _q():
-            # on_conflict="key" ensures primary-key upsert
             return self.client.table(self.state_table).upsert(rec, on_conflict="key").execute()
-
         try:
             await anyio.to_thread.run_sync(_q)
             return True
@@ -64,10 +73,9 @@ class SupaClient:
             print("[Supa] set_state failed:", repr(e))
             return False
 
-    # --- Events ---------------------------------------------------------------
+    # -------- events ----------------------------------------------------------
 
-    async def load_events(self) -> List[dict]:
-        """Fetch all events ordered by year/month/day."""
+    async def load_events(self) -> List[Dict[str, Any]]:
         def _q():
             return (
                 self.client.table(self.events_table)
@@ -78,10 +86,21 @@ class SupaClient:
                 .execute()
             )
         try:
-            resp = await anyio.to_thread.run_sync(_q)
-            return (getattr(resp, "data", None) or [])  # type: ignore[return-value]
+            res = await anyio.to_thread.run_sync(_q)
+            return getattr(res, "data", None) or []
         except Exception as e:
             print("[Supa] load_events failed:", repr(e))
             return []
 
-__all__ = ["SupaClient", "HarptosDate"]
+    def upsert_event(self, rec: Dict[str, Any]) -> None:
+        """
+        Synchronous call (wrap with anyio.to_thread.run_sync in app)
+        Requires 'id' in rec. Use generate_event_id() to create one.
+        """
+        if "id" not in rec or rec["id"] is None:
+            rec["id"] = generate_event_id()
+        # If your Postgres table defines UNIQUE on (id), this will update on conflicts
+        self.client.table(self.events_table).upsert(rec, on_conflict="id").execute()
+
+
+__all__ = ["SupaClient", "HarptosDate", "generate_event_id"]
