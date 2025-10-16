@@ -1,20 +1,24 @@
 /* www/styles.css
-   Matches your examples: blue panels, day chips inside cells, readable modals
+   All 12 months visible at once — no inner scrollbars.
+   Months and cells scale with the viewport.
 ------------------------------------------------------------------ */
 :root{
   --fg: #fff;
-  --gold: #d1b464;
   --panel: #35669b;
   --panel-2: #2f5a88;
-  --glass: rgba(255,255,255,0.06);
   --border: rgba(255,255,255,0.25);
   --highlight: #b7ffb1;
   --chip: #cfe8ff;
   --chip-text: #0f1c2b;
   --chip-border: #a9c7ef;
+
+  /* layout tuning — adjust if you need a tighter top area */
+  --months-top-offset: 280px;  /* navbar + controls + margins */
+  --grid-gap: 14px;
 }
 
 html, body{
+  height: 100%;
   background: #0e243a;
   color: var(--fg);
 }
@@ -27,62 +31,99 @@ html, body{
   border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* Layout: 4 columns x 3 rows (12 months) */
+/* === Year grid ===
+   Fixed to viewport height so 3 rows of months always fit without inner scroll.
+*/
 .months-wrap{
+  height: calc(100vh - var(--months-top-offset));
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  grid-template-rows: repeat(3, 1fr);
+  gap: var(--grid-gap);
 }
-@media (max-width: 1400px){ .months-wrap{ grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 992px){ .months-wrap{ grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 640px){ .months-wrap{ grid-template-columns: 1fr; } }
+@media (max-width: 1400px){
+  .months-wrap{
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+  }
+}
+@media (max-width: 992px){
+  .months-wrap{
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(6, 1fr);
+  }
+}
+@media (max-width: 640px){
+  .months-wrap{
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(12, 1fr);
+  }
+}
 
-/* Cards */
+/* === Month card === */
 .glass.month-card{
+  height: 100%;
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px 12px 8px 12px;
+  padding: 10px 12px 10px 12px;
   color: var(--fg);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;           /* no inner scrollbars */
 }
 
 .card-header{
   background: transparent;
   border-bottom: 1px solid rgba(255,255,255,0.15);
-  color: #eeeeee;
+  color: #e9f2ff;
   font-weight: 600;
-  padding: 6px 0 10px 0;
+  padding: 4px 0 8px 0;
+  font-size: clamp(12px, 1vw, 16px);
 }
 
-/* Day rows: three rows of 10 */
+/* Wrap that contains the three day rows — each row gets equal height */
+.days-wrap{
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 6px;
+  min-height: 0; /* allow rows to shrink without creating scrollbars */
+}
+
+/* Each row is 10 equal columns */
 .day-row{
   display: grid;
   grid-template-columns: repeat(10, 1fr);
   gap: 6px;
-  margin-bottom: 8px;
+  min-height: 0;
 }
 
-/* Day cells & buttons */
+/* Day cells */
 .day-cell{
   position: relative;
-  min-height: 96px;            /* bigger cell to hold chips like in your example */
-  padding: 2px 2px 6px 2px;
   border-radius: 6px;
+  padding: 2px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;          /* chips clip rather than scroll */
 }
 
+/* Day number button */
 .day-btn{
   width: 38px;
-  height: 26px;
-  padding: 1px 0;
-  font-size: 12px;
+  height: 24px;
+  padding: 0;
+  font-size: clamp(10px, .8vw, 12px);
   line-height: 22px;
   color: #e7f0ff;
   border: 1px solid rgba(255,255,255,0.25);
   background: transparent;
+  border-radius: 6px;
+  flex: 0 0 auto;
 }
 .day-btn:hover{ filter: brightness(1.1); }
-
-/* Green "current date" highlight */
 .day-current{
   background: var(--highlight) !important;
   color: #0a2f0a !important;
@@ -107,26 +148,28 @@ html, body{
   display: grid;
   grid-template-columns: repeat(10, 1fr);
   gap: 6px;
+  min-height: 0;
 }
 .festival-cell .day-btn{ width: 36px; }
 .festival-wrap{ display: inline-flex; align-items: center; gap: 8px; }
-.festival-label{ font-size: 11px; opacity: .9; white-space: nowrap; color: #eaf5ff; }
+.festival-label{ font-size: clamp(9px, .75vw, 12px); opacity: .9; color: #eaf5ff; }
 
 /* Event chips inside each day */
 .chip-stack{
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 4px;
+  margin-top: 2px;
+  min-height: 0;
 }
 .chip{
   text-align: left;
-  padding: 6px 8px;
+  padding: 4px 6px;
   border-radius: 6px;
   background: var(--chip);
   color: var(--chip-text) !important;
   border: 1px solid var(--chip-border);
-  font-size: 12px;
+  font-size: clamp(9px, .75vw, 12px);
   line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
