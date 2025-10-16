@@ -1,15 +1,14 @@
 # supa.py
 # -----------------------------------------------------------------------------
 # Supabase wrapper for Harptos calendar
-# - Generates 64-bit event IDs (fits BIGINT)
-# - Safe async helpers
+# - UUID4 ids for events (Postgres UUID column)
+# - Async-safe helpers
 # -----------------------------------------------------------------------------
 
 from __future__ import annotations
 
 import os
-import time
-import random
+import uuid
 from typing import Any, Dict, List, Optional, TypedDict
 
 import anyio
@@ -22,18 +21,9 @@ class HarptosDate(TypedDict):
     day: int
 
 
-def generate_event_id() -> int:
-    """
-    Generate a positive 64-bit integer ID:
-    - Top bits = milliseconds since epoch
-    - Low bits = random entropy
-    Fits signed BIGINT (Postgres) and avoids NULL id inserts.
-    """
-    ts = int(time.time() * 1000)  # ~2^41 space
-    rnd = random.getrandbits(20)  # 20 bits of entropy
-    val = (ts << 20) | rnd        # <= 2^61
-    # Ensure < 2^63-1 (Postgres BIGINT max)
-    return val & 0x7FFFFFFFFFFFFFFF
+def generate_event_id() -> str:
+    """Return a UUID4 string for the events.id (UUID) column."""
+    return str(uuid.uuid4())
 
 
 class SupaClient:
@@ -93,13 +83,9 @@ class SupaClient:
             return []
 
     def upsert_event(self, rec: Dict[str, Any]) -> None:
-        """
-        Synchronous call (wrap with anyio.to_thread.run_sync in app)
-        Requires 'id' in rec. Use generate_event_id() to create one.
-        """
-        if "id" not in rec or rec["id"] is None:
+        """Synchronous call (wrap with anyio.to_thread.run_sync in app)."""
+        if "id" not in rec or rec["id"] in (None, ""):
             rec["id"] = generate_event_id()
-        # If your Postgres table defines UNIQUE on (id), this will update on conflicts
         self.client.table(self.events_table).upsert(rec, on_conflict="id").execute()
 
 
