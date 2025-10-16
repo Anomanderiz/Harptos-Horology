@@ -1,7 +1,4 @@
-/* www/styles.css
-   Full-width year grid (no inner scrollbars). Big day tiles; event tiles inside.
-   Page can scroll; months never have their own scrollbars.
------------------------------------------------------------------- */
+/* Full-width year grid; square day tiles; compact event tiles (smaller text) */
 :root{
   --fg: #fff;
   --panel: #35669b;
@@ -31,18 +28,18 @@ html, body{
   border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* ===================== YEAR GRID (full width) ===================== */
+/* ======= YEAR GRID (wider month cards) ======= */
 .months-wrap{
   display: grid;
-  grid-template-columns: repeat(4, 1fr); /* 4 across like your screenshot */
+  grid-template-columns: repeat(3, 1fr); /* wider than 4 -> bigger day squares */
   gap: var(--grid-gap);
   width: 100%;
 }
-@media (max-width: 1400px){ .months-wrap{ grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 992px){  .months-wrap{ grid-template-columns: repeat(2, 1fr); } }
+/* On ultra-wide screens we can afford 4 across */
+@media (min-width: 2400px){ .months-wrap{ grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 1100px){ .months-wrap{ grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px){  .months-wrap{ grid-template-columns: 1fr; } }
 
-/* Month card expands with its content. No fixed height -> no internal scrollbars */
 .glass.month-card{
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
   border: 1px solid var(--border);
@@ -60,24 +57,24 @@ html, body{
   font-size: clamp(14px, 1.1vw, 18px);
 }
 
-/* 3 rows × 10 columns; rows auto-size to fit big tiles */
+/* 3 rows × 10 columns */
 .days-wrap{ display: grid; grid-template-rows: auto auto auto; gap: 10px; }
 .day-row{  display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; }
 
-/* Day cell: big tile area with pinned day badge */
+/* Day cell: now SQUARE using aspect-ratio; room at the top for the badge */
 .day-cell{
   position: relative;
   background: rgba(255,255,255,0.07);
   border-radius: 12px;
-  padding: 36px 12px 12px 12px;  /* top padding leaves room for badge */
-  min-height: 160px;            /* <<< BIGGER TILES */
+  padding: 36px 10px 10px 10px; /* top pad keeps badge off content */
+  aspect-ratio: 1 / 1;         /* <<< makes each day tile square */
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  overflow: hidden;             /* never show an inner scrollbar */
+  gap: 8px;
+  overflow: hidden;             /* never scroll inside month */
 }
 
-/* Small badge for the day number pinned top-left */
+/* Day badge pinned top-left */
 .day-badge{
   position: absolute;
   top: 8px; left: 8px;
@@ -102,39 +99,39 @@ html, body{
 }
 
 /* Moon pips pinned top-right */
-.pip-wrap{
-  position: absolute; right: 8px; top: 10px; display: flex; gap: 4px; z-index: 2;
-}
+.pip-wrap{ position: absolute; right: 8px; top: 10px; display: flex; gap: 4px; z-index: 2; }
 .pip{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.pip-new{ background:#e6fff8; box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset; }
+.pip-new{  background:#e6fff8; box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset; }
 .pip-full{ background:#161616; box-shadow: 0 0 0 1px rgba(255,255,255,.6) inset; }
 
-/* Festival row (intercalary 31) */
+/* Intercalary 31 row */
 .festival-row{ display: grid; grid-template-columns: repeat(10, 1fr); gap: 10px; }
-.festival-cell .day-badge{ position: static; } /* keep inside label row */
+.festival-cell{ aspect-ratio: auto; min-height: 90px; } /* don't force square here */
 .festival-wrap{ display: inline-flex; align-items: center; gap: 8px; }
 .festival-label{ font-size: clamp(12px, .95vw, 14px); color: #eaf5ff; }
 
-/* Event tile grid: two columns of large cards */
+/* Event tiles: compact 1-column list with smaller text */
 .ev-grid{
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  grid-auto-rows: 84px;         /* <<< LARGE event tiles */
-  gap: 10px;
+  grid-template-columns: 1fr;   /* <<< 1 column for better fit */
+  grid-auto-rows: 36px;         /* <<< compact tile height */
+  gap: 6px;
 }
 .ev-tile{
   display: block;
   width: 100%;
   text-align: left;
-  padding: 12px 14px;
-  border-radius: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
   background: var(--tile);
   color: var(--tile-text) !important;
   border: 1px solid var(--tile-border);
-  font-size: clamp(12px, .95vw, 16px);
+  font-size: clamp(10px, .8vw, 12px);  /* <<< smaller text */
   line-height: 1.25;
-  white-space: normal;          /* wrap lines */
+  white-space: normal;
   overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
 }
 .ev-more{
   background: rgba(255,255,255,0.25);
@@ -142,7 +139,7 @@ html, body{
   text-align: center;
 }
 
-/* ---------- Modals: legible labels & inputs ---------- */
+/* Modals: legible labels & inputs */
 .modal .modal-content{ background: #f7f9fc; color: #0f1c2b; }
 .modal .form-label, .modal label{ color:#0f1c2b !important; font-weight:700; }
 .modal .form-control, .modal .form-select{ background:#ffffff; color:#0f1c2b !important; border-color:#c7d1e3; }
