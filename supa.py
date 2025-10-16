@@ -1,25 +1,17 @@
 # supa.py
 # -----------------------------------------------------------------------------
 # Supabase client + Harptos helpers for Shiny (async-safe wrappers).
-# - Uses ClientOptions(schema=...) correctly (no dict for options).
-# - Runs sync Supabase calls off-thread via anyio.to_thread.run_sync.
-# - Defensive response handling (obj/dict/list), no .data on None.
-# - Exposes HarptosDate(...) as a callable factory so existing code like
-#     HarptosDate(year=..., month=..., day=...)
-#   continues to work even though it's a dict under the hood.
 # -----------------------------------------------------------------------------
 
 from __future__ import annotations
 
-from typing import Any, Optional, TypedDict, List, Dict
+from typing import Any, Optional, TypedDict, List
 import anyio
 
 from supabase import create_client
 try:
-    # Newer releases
     from supabase.client import ClientOptions
 except Exception:
-    # Older releases
     from supabase.lib.client_options import ClientOptions
 
 
@@ -31,18 +23,12 @@ class HarptosDateDict(TypedDict):
 
 
 def HarptosDate(*, year: int, month: int, day: int) -> HarptosDateDict:
-    """
-    Callable factory to create a Harptos date dict.
-    Keeps compatibility with code that calls HarptosDate(...).
-    """
+    """Callable factory to create a Harptos date dict."""
     return {"year": year, "month": month, "day": day}
 
 
 def step_harptos(h: HarptosDateDict, months: List[str], dpm: int) -> HarptosDateDict:
-    """
-    Advance one day within a fixed-days-per-month scheme.
-    `months` is the ordered month list; `dpm` is the days per month.
-    """
+    """Advance one day within a fixed-days-per-month scheme."""
     day = h["day"] + 1
     month = h["month"]
     year = h["year"]
@@ -62,19 +48,9 @@ class SupaClient:
     """
     Thin async-friendly wrapper around supabase-py’s sync client.
 
-    Parameters
-    ----------
-    url : str
-        SUPABASE_URL
-    key : str
-        SUPABASE service or anon key (use service key server-side if RLS blocks writes)
-    schema : str
-        Default Postgres schema (defaults to "public")
-    state_table : str
-        Table for key/value app state (defaults to "state")
-        Expected columns: key (text PK/unique), value (jsonb)
-    events_table : str
-        Table for calendar/event rows (defaults to "events")
+    Tables:
+      - state(key text PK/unique, value jsonb)
+      - events(...)
     """
 
     def __init__(
@@ -94,16 +70,13 @@ class SupaClient:
 
     # -------------------------- State (key/value) --------------------------- #
     async def get_state(self, key: str) -> Optional[dict]:
-        """
-        Return a single row dict like {'key': ..., 'value': ...} or None.
-        """
+        """Return a single row dict like {'key': ..., 'value': ...} or None."""
         def _q():
             q = (
                 self.client.table(self.state_table)
                 .select("key,value")
                 .eq("key", key)
             )
-            # Try maybe_single() (preferred), fall back gracefully if not present.
             try:
                 q = q.maybe_single()
             except Exception:
@@ -127,23 +100,16 @@ class SupaClient:
         return data
 
     async def get_state_value(self, key: str, default: Any = None) -> Any:
-        """
-        Convenience: return the 'value' field (or default) for a given key.
-        """
         row = await self.get_state(key)
         return default if not row else row.get("value", default)
 
     async def set_state(self, key: str, value: Any) -> bool:
-        """
-        UPSERT key/value. Returns True on success.
-        """
         def _q():
             return (
                 self.client.table(self.state_table)
                 .upsert({"key": key, "value": value}, on_conflict="key")
                 .execute()
             )
-
         try:
             resp = await anyio.to_thread.run_sync(_q)
         except Exception as e:
@@ -155,31 +121,21 @@ class SupaClient:
 
     # ------------------------------ Events --------------------------------- #
     async def load_events(self) -> List[dict]:
-        """
-        Return all event rows; adjust select/order to match your schema as needed.
-        """
+        """Return all event rows."""
         def _q():
-            # Customise selection and ordering if your schema requires it.
             return self.client.table(self.events_table).select("*").execute()
-
         try:
             resp = await anyio.to_thread.run_sync(_q)
         except Exception as e:
             print(f"[Supa] load_events() failed: {e!r}")
             return []
-
         data = _extract_data(resp)
         return data or []
 
 
 # --- Internal helpers -------------------------------------------------------- #
 def _extract_data(resp: Any) -> Optional[Any]:
-    """
-    Normalise supabase response shapes:
-    - PostgrestResponse with .data
-    - dict with 'data' key
-    - None
-    """
+    """Normalise supabase response shapes."""
     if resp is None:
         return None
     data = getattr(resp, "data", None)
@@ -188,7 +144,4 @@ def _extract_data(resp: Any) -> Optional[Any]:
     return data
 
 
-__all__ = [
-    "SupaClient",
-    "HarptosDate", "HarptosDateDict", "step_harptos",
-]
+__all__ = ["SupaClient", "HarptosDate", "HarptosDateDict", "step_harptos"]
