@@ -2,6 +2,12 @@
 from shiny import App, ui, reactive, render
 from supabase_client import list_items, add_item
 import os
+import os
+APP_DIR = os.path.dirname(__file__)
+app = App(app_ui, server, static_assets=os.path.join(APP_DIR, "www"))
+# and change:
+ui.include_css("www/styles.css")  ->  ui.include_css("styles.css")
+
 SUPABASE_READY = bool(os.getenv("SUPABASE_URL","").strip() and
                       (os.getenv("SUPABASE_SERVICE_KEY","").strip() or os.getenv("SUPABASE_ANON_KEY","").strip()))
 
