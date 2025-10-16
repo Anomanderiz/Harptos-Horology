@@ -1,75 +1,73 @@
-from __future__ import annotations
+# supa.py
+from typing import Any, Optional
+import anyio
+from supabase import create_client
+try:
+    # new-ish location
+    from supabase.client import ClientOptions
+except Exception:
+    # older releases
+    from supabase.lib.client_options import ClientOptions
 
-import os
-from typing import Dict, Any, List, Optional
-from datetime import datetime
-import json
-import uuid
-
-# The official supabase client
-#   pip install supabase
-from supabase import create_client, Client
-from supabase.client import ClientOptions
-
-HarptosDate = Dict[str, int]
-
-def step_harptos(h: HarptosDate, months: list[str], dpm: int) -> HarptosDate:
-    day = h["day"] + 1
-    month = h["month"]
-    year = h["year"]
-    if day > dpm:
-        day = 1
-        month += 1
-        if month > 12:
-            month = 1
-            year += 1
-    return {"year": year, "month": month, "day": day}
 
 class SupaClient:
-    def __init__(self, url: str, key: str, schema: str = "public"):
-        self.client = create_client(
-            url,
-            key,
-            options=ClientOptions(
-                schema=schema,                 # set your schema here
-                # postgrest_client_timeout=10, # (optional) timeouts
-                # storage_client_timeout=10,
-                # headers={"X-Client": "Harptos"}  # (optional) custom headers
+    def __init__(self, url: str, key: str, schema: str = "public", table: str = "state"):
+        if not url or not key:
+            raise RuntimeError("SUPABASE_URL or SUPABASE_KEY missing")
+        self.client = create_client(url, key, options=ClientOptions(schema=schema))
+        self.table = table
+
+    async def get_state(self, key: str) -> Optional[dict]:
+        """Return a single row dict like {'key': ..., 'value': ...} or None."""
+        def _q():
+            # PostgREST query (sync)
+            return (
+                self.client.table(self.table)
+                .select("key,value")
+                .eq("key", key)
+                .maybe_single()
+                .execute()
             )
-        )
-    async def _ensure(self):
-        if self.client is None:
-            raise RuntimeError("Supabase client not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY env vars.")
 
-    # --- state table helpers ---
-    async def get_state(self, key: str):
-        await self._ensure()
-        resp = self.client.table("state").select("*").eq("key", key).maybe_single().execute()
-        row = None
-        if resp.data:
-            row = resp.data
-        if isinstance(row, dict):
-            return row.get("value")
-        return None
+        try:
+            resp = await anyio.to_thread.run_sync(_q)
+        except Exception as e:
+            print(f"[Supa] get_state({key}) failed: {e!r}")
+            return None
 
-    async def set_state(self, key: str, value: Any):
-        await self._ensure()
-        payload = {"key": key, "value": value, "updated_at": datetime.utcnow().isoformat()}
-        # upsert by key
-        self.client.table("state").upsert(payload, on_conflict="key").execute()
+        # Support both PostgrestResponse (obj) and dict
+        data = getattr(resp, "data", None)
+        if data is None and isinstance(resp, dict):
+            data = resp.get("data")
 
-    # --- events helpers ---
-    async def load_events(self) -> List[Dict[str, Any]]:
-        await self._ensure()
-        resp = self.client.table("events").select("*").order("year").order("month").order("day").execute()
-        return resp.data or []
+        if not data:
+            return None  # no row found
 
-    async def add_event(self, row: Dict[str, Any]) -> None:
-        await self._ensure()
-        if "id" not in row:
-            row["id"] = str(uuid.uuid4())
-        self.client.table("events").insert(row).execute()
+        # If caller ever switches off maybe_single(), handle list
+        if isinstance(data, list):
+            data = data[0] if data else None
+        return data
 
-    async def delete_event(self, event_id: str) -> None:
-        await self._ensure()
-        self.client.table("events").delete().eq("id", event_id).execute()
+    async def set_state(self, key: str, value: Any) -> bool:
+        """UPSERT key/value. Returns True on success."""
+        def _q():
+            return (
+                self.client.table(self.table)
+                .upsert({"key": key, "value": value}, on_conflict="key")
+                .execute()
+            )
+
+        try:
+            resp = await anyio.to_thread.run_sync(_q)
+        except Exception as e:
+            print(f"[Supa] set_state({key}) failed: {e!r}")
+            return False
+
+        data = getattr(resp, "data", None)
+        if data is None and isinstance(resp, dict):
+            data = resp.get("data")
+        return data is not None
+
+    async def get_state_value(self, key: str, default: Any = None) -> Any:
+        row = await self.get_state(key)
+        return default if not row else row.get("value", default)
