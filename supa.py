@@ -9,6 +9,7 @@ import uuid
 # The official supabase client
 #   pip install supabase
 from supabase import create_client, Client
+from supabase.client import ClientOptions
 
 HarptosDate = Dict[str, int]
 
@@ -26,12 +27,16 @@ def step_harptos(h: HarptosDate, months: list[str], dpm: int) -> HarptosDate:
 
 class SupaClient:
     def __init__(self, url: str, key: str, schema: str = "public"):
-        if not url or not key:
-            # Create a dummy client that raises on use to make errors obvious
-            self.client: Optional[Client] = None
-        else:
-            self.client = create_client(url, key, options={"schema": schema})
-
+        self.client = create_client(
+            url,
+            key,
+            options=ClientOptions(
+                schema=schema,                 # set your schema here
+                # postgrest_client_timeout=10, # (optional) timeouts
+                # storage_client_timeout=10,
+                # headers={"X-Client": "Harptos"}  # (optional) custom headers
+            )
+        )
     async def _ensure(self):
         if self.client is None:
             raise RuntimeError("Supabase client not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY env vars.")
