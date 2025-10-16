@@ -88,5 +88,9 @@ class SupaClient:
             rec["id"] = generate_event_id()
         self.client.table(self.events_table).upsert(rec, on_conflict="id").execute()
 
+    def delete_event(self, event_id: str) -> None:
+        """Delete a single event by UUID."""
+        self.client.table(self.events_table).delete().eq("id", event_id).execute()
+
 
 __all__ = ["SupaClient", "HarptosDate", "generate_event_id"]
