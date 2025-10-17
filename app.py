@@ -14,6 +14,7 @@ from datetime import date
 from typing import Any, Dict, List, Optional, Set
 
 import anyio
+import re
 from shiny import App, reactive, render, ui
 
 from supa import SupaClient, HarptosDate, generate_event_id
@@ -89,6 +90,16 @@ def harptos_ordinal(y: int, m: int, d: int) -> int:
     before = (m - 1) * 30 + festivals_before(m)
     day_index = before + (30 if (d == 31 and m in FESTIVALS) else d - 1)
     return base + day_index
+
+def _priority_from_title(title: str) -> int:
+    """Extract numeric priority from titles like '#1' (lower = earlier).
+    Absent => a very large number so these sort after numbered items.
+    This is used only as a secondary key after the Harptos ordinal,
+    so it affects ordering within the same date only."""
+    if not title:
+        return 10_000_000
+    m = re.search(r'#\s*(\d+)\b', title)
+    return int(m.group(1)) if m else 10_000_000
 
 def advance_one(h: HarptosDate) -> HarptosDate:
     y, m, d = h["year"], h["month"], h["day"]
@@ -357,10 +368,16 @@ def server(input, output, session):
 
         rows_sorted = sorted(
             rows,
-            key=lambda r: harptos_ordinal(int(r.get("year", 1492)),
-                                          int(r.get("month", 1)),
-                                          int(r.get("day", 1)))
-        )
+            key=lambda r: (
+                harptos_ordinal(int(r.get("year", 1492)),
+                                int(r.get("month", 1)),
+                                int(r.get("day", 1))),
+                _priority_from_title((r.get("title") or "").strip()),
+                (r.get("title") or "").lower(),
+                str(r.get("id")),
+    )
+)
+
 
         PX_PER_DAY = 6
         MIN_GAP   = 28
