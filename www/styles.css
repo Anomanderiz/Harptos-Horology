@@ -1,5 +1,6 @@
 /* ============================================================
    Harptos – Black / Gold / Red theme + Responsive Month Grid + Timeline
+   + Fullscreen Video Backdrop (Backdrop.webm)
    ============================================================ */
 
 :root{
@@ -10,11 +11,32 @@
   --muted:#bfbfbf; --gap:18px;
 }
 
+/* --- Video background ---------------------------------------------------- */
+#bg-video{
+  position:fixed; inset:0;
+  width:100%; height:100%;
+  object-fit:cover; z-index:-20;
+  background:#000; pointer-events:none;
+}
+#bg-overlay{
+  position:fixed; inset:0; z-index:-10; pointer-events:none;
+  /* subtle vignette/darken to keep UI readable on bright frames */
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(0,0,0,.55) 0%, transparent 60%),
+    radial-gradient(1200px 800px at 80% 110%, rgba(0,0,0,.55) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(0,0,0,.30), rgba(0,0,0,.45));
+}
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce){
+  #bg-video{ display:none; }
+  #bg-overlay{ background: rgba(0,0,0,.6); }
+}
+
 html,body{
-  background: radial-gradient(1200px 700px at 30% -10%, #111 0%, transparent 60%),
-              radial-gradient(1000px 600px at 80% 110%, #141414 0%, transparent 55%),
-              var(--bg);
-  color:var(--gold); min-height:100%;
+  /* fallback if video can’t load */
+  background: var(--bg);
+  color:var(--gold);
+  min-height:100%;
 }
 
 /* Top bar */
@@ -25,7 +47,7 @@ html,body{
   box-shadow:0 0 0 2px rgba(212,175,55,.08) inset, 0 10px 30px rgba(0,0,0,.35);
 }
 
-/* Generic glass cards (also wraps Current Date Controls) */
+/* Generic glass cards */
 .glass{
   background:linear-gradient(180deg,var(--panel-top) 0%, var(--panel-bot) 100%);
   border:1px solid var(--gold-dim); border-radius:14px; padding:12px 14px;
@@ -84,7 +106,6 @@ html,body{
   transition: box-shadow .12s ease, background-color .12s ease, border-color .12s ease;
   container-type:inline-size;
 }
-
 .day-tile.current-day{
   background:linear-gradient(180deg, var(--red-strong) 0%, var(--red) 60%, var(--red-dark) 100%);
   border-color: color-mix(in srgb, var(--gold) 60%, var(--red) 40%);
@@ -171,7 +192,6 @@ html,body{
   padding: 10px 0;
 }
 .timeline-wrap::before{
-  /* vertical spine */
   content:"";
   position:absolute; left:50%; top:0; bottom:0;
   width:4px; transform:translateX(-50%);
