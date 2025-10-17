@@ -11,18 +11,17 @@
   --muted:#bfbfbf; --gap:18px;
 }
 
-/* --- Video background (now ABOVE page background, BELOW content) --------- */
+/* --- Video background (above page bg, below content) --------------------- */
 #bg-video{
   position:fixed; inset:0;
   width:100%; height:100%;
   object-fit:cover;
-  z-index:0;                 /* was negative; that hid it behind body bg */
+  z-index:0;
   background:#000;
   pointer-events:none;
 }
 #bg-overlay{
   position:fixed; inset:0; z-index:1; pointer-events:none;
-  /* subtle vignette/darken to keep UI readable on bright frames */
   background:
     radial-gradient(1200px 800px at 20% -10%, rgba(0,0,0,.45) 0%, transparent 60%),
     radial-gradient(1200px 800px at 80% 110%, rgba(0,0,0,.45) 0%, transparent 60%),
@@ -40,9 +39,9 @@ body > *:not(#bg-video):not(#bg-overlay){
   #bg-overlay{ background: rgba(0,0,0,.6); }
 }
 
-/* Root background must be transparent so the video is visible */
+/* Root bg transparent so video is visible */
 html,body{
-  background: transparent !important;   /* <— key change */
+  background: transparent !important;
   color:var(--gold);
   min-height:100%;
 }
@@ -229,6 +228,7 @@ html,body{
   border-radius:12px;
   text-align:left; padding:0;
   box-shadow:0 8px 22px rgba(0,0,0,.45);
+  cursor: pointer; /* <— makes timeline card obviously clickable */
 }
 .tl-card-btn:hover, .tl-card-btn:focus{
   border-color:color-mix(in oklab, var(--gold) 60%, var(--red) 40%) !important;
