@@ -1,10 +1,9 @@
 # app.py
 # ------------------------------------------------------------------------------
 # Harptos – Single "Year at a Glance" layout
-# - The entire day tile is the button (no separate day number/button or chips)
-# - Event titles are shown as text inside each day tile
-# - Click day -> Day Details (list + Add New); edit inside the modal
-# - UUID ids; manual current-date controls; auto +1 day tick
+# - Entire day tile is the button
+# - NO tiny bubble around day numbers (plain text)
+# - Current day: whole tile turns green (via .current-day class)
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -83,7 +82,6 @@ markers: reactive.Value[Dict[str, List[Dict[str, int]]]] = reactive.Value({"new"
 selected_date: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
 selected_event_id: reactive.Value[Optional[str]] = reactive.Value(None)
 
-# For dynamic edit handlers inside the details modal
 _registered_edit_ids: Set[str] = set()
 
 # ---------- Helpers ----------------------------------------------------------
@@ -105,7 +103,6 @@ def pip_for_day(m: int, d: int):
     return ui.span(*dots, class_="pip-wrap")
 
 def event_blurbs(y: int, m: int, d: int) -> ui.TagChild:
-    """Plain text event titles (not buttons)."""
     day_rows = events_for_day(y, m, d)
     items: List[ui.TagChild] = []
     max_items = 4
@@ -122,28 +119,30 @@ def event_blurbs(y: int, m: int, d: int) -> ui.TagChild:
 def day_tile_button(y: int, m: int, d: int, highlight: bool) -> ui.TagChild:
     """One big button per day; shows number + blurbs inside."""
     pid = f"m{m}_d{d}"
+    tile_class = "day-tile current-day" if highlight else "day-tile"
     return ui.input_action_button(
         pid,
         ui.div(
-            ui.div(str(d), class_=("day-num current" if highlight else "day-num")),
+            ui.div(str(d), class_="day-num"),
             pip_for_day(m, d),
             event_blurbs(y, m, d),
-            class_="day-tile"
+            class_=tile_class
         ),
         class_="day-tile-btn"
     )
 
-def festival_tile_button(y: int, m: int) -> ui.TagChild:
+def festival_tile_button(y: int, m: int, highlight: bool) -> ui.TagChild:
     label = FESTIVALS.get(m)
     if not label: return ui.div()
     pid = f"m{m}_d31"
+    tile_class = "day-tile current-day" if highlight else "day-tile"
     return ui.input_action_button(
         pid,
         ui.div(
             ui.div("31", class_="day-num"),
             ui.div(label, class_="festival-label"),
             event_blurbs(y, m, 31),
-            class_="day-tile"
+            class_=tile_class
         ),
         class_="day-tile-btn"
     )
@@ -165,7 +164,7 @@ def month_card(m: int, cur: Optional[HarptosDate]) -> ui.TagChild:
     return ui.card(
         ui.card_header(f"{month_name(m)} {view_year}"),
         ui.div(*rows, class_="days-wrap"),
-        ui.div(festival_tile_button(view_year, m), class_="festival-row"),
+        ui.div(festival_tile_button(view_year, m, is_hl(31)), class_="festival-row"),
         class_="month-card glass"
     )
 
