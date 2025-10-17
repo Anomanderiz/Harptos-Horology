@@ -2,8 +2,8 @@
 # ------------------------------------------------------------------------------
 # Harptos – Single "Year at a Glance" layout
 # - Entire day tile is the button
-# - NO tiny bubble around day numbers (plain text)
 # - Current day: whole tile turns green (via .current-day class)
+# - "Jump to Current Day" button loads the date saved in state
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -241,7 +241,7 @@ page = ui.page_fluid(
                 ui.div(
                     ui.input_action_button("btn_apply_current", "Set Current Date"),
                     ui.input_action_button("btn_save_current", "Save Current Date"),
-                    ui.input_action_button("btn_advance_one", "Advance +1 Day"),
+                    ui.input_action_button("btn_jump_current", "Jump to Current Day"),
                     ui.input_action_button("btn_refresh_events", "Refresh Events"),
                     class_="d-flex gap-2 mt-1"
                 ),
@@ -279,7 +279,7 @@ def server(input, output, session):
         markers.set(load_markers())
         await reload_events()
 
-    # daily +1 tick
+    # daily +1 tick (persists to state)
     @reactive.Effect
     async def _auto_tick():
         reactive.invalidate_later(86_400_000)
@@ -326,12 +326,24 @@ def server(input, output, session):
         ui.notification_show("Current date saved." if ok else "Failed saving current date (check RLS).",
                              type="message" if ok else "error")
 
+    # NEW: Jump to saved current day from state
     @reactive.Effect
-    @reactive.event(input.btn_advance_one)
-    async def _advance_one():
-        h = current.get()
-        if not h: return
-        nh = advance_one(h); current.set(nh); await db.set_state("current_date", nh)
+    @reactive.event(input.btn_jump_current)
+    async def _jump_to_saved():
+        st = await db.get_state_value("current_date", default=None)
+        if not isinstance(st, dict):
+            ui.notification_show("No saved current date yet. Use 'Save Current Date' first.", type="warning")
+            return
+        try:
+            y = int(st["year"]); m = int(st["month"]); d = int(st["day"])
+        except Exception:
+            ui.notification_show("Saved current date is invalid.", type="error")
+            return
+        current.set({"year": y, "month": m, "day": d})
+        session.send_input_message("set_month", {"value": month_name(m)})
+        session.send_input_message("set_day", {"value": d})
+        session.send_input_message("set_year", {"value": y})
+        ui.notification_show("Jumped to saved current day.", type="message")
 
     @reactive.Effect
     @reactive.event(input.btn_refresh_events)
