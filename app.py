@@ -1,11 +1,10 @@
 # app.py
 # ------------------------------------------------------------------------------
-# Harptos – Year at a Glance (responsive, themed)
-# - Entire day tile is the button
-# - Current day: whole tile turns red (via .current-day class)
-# - "Jump to Current Day" button loads the date saved in state
-# - Responsive MONTH GRID (no inner scrolling; adds rows as space gets tighter)
-# - FIX: Festival (day 31) restored with label overlay
+# Harptos – Year at a Glance + Timeline (responsive, themed)
+# - Calendar: same as before (responsive month grid, festival day 31 preserved)
+# - Timeline: chronological list, vertical spacing proportional to elapsed days
+# - Click a timeline card to expand/collapse its description
+# - "Jump to Current Day" supported
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import date
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import anyio
 from shiny import App, reactive, render, ui
@@ -35,6 +34,7 @@ MONTHS: List[str] = [
     "Nightal, The Drawing Down",
 ]
 DAYS_PER_MONTH = 30
+# Intercalary (festival) days occur on Day 31 in these months:
 FESTIVALS: Dict[int, str] = {
     1: "Midwinter",
     4: "Greengrass",
@@ -63,14 +63,38 @@ def load_markers() -> Dict[str, List[Dict[str, int]]]:
 def month_name(i: int) -> str:
     return MONTHS[i - 1] if 1 <= i <= 12 else MONTHS[0]
 
+def month_short(i: int) -> str:
+    # "Tarsakh, The Claw of the Storms" -> "Tarsakh"
+    raw = month_name(i)
+    return raw.split(",")[0].strip()
+
+def ordinal_suffix(n: int) -> str:
+    s = "th"
+    if 10 <= (n % 100) <= 20:
+        s = "th"
+    else:
+        s = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{s}"
 
 def _iso(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if d else None
 
-
 def safe_id(s: str) -> str:
     return str(s).replace("-", "_")
 
+def festivals_before(month: int) -> int:
+    # how many festival days occur strictly before the given month
+    return sum(1 for m in FESTIVALS.keys() if m < month)
+
+def harptos_ordinal(y: int, m: int, d: int) -> int:
+    """
+    Absolute day index used for ordering and day differences.
+    Harptos year length = 365 (12*30 + 5 festivals).
+    """
+    base = y * 365  # each prior year contributes 365 days
+    before = (m - 1) * 30 + festivals_before(m)
+    day_index = before + (30 if (d == 31 and m in FESTIVALS) else d - 1)
+    return base + day_index
 
 def advance_one(h: HarptosDate) -> HarptosDate:
     y, m, d = h["year"], h["month"], h["day"]
@@ -100,7 +124,10 @@ markers: reactive.Value[Dict[str, List[Dict[str, int]]]] = reactive.Value({"new"
 selected_date: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
 selected_event_id: reactive.Value[Optional[str]] = reactive.Value(None)
 
+# Timeline expansion state
+expanded_ids: reactive.Value[Set[str]] = reactive.Value(set())
 _registered_edit_ids: Set[str] = set()
+_registered_tl_clicks: Set[str] = set()
 
 # ---------- Helpers ----------------------------------------------------------
 
@@ -112,7 +139,6 @@ def events_for_day(y: int, m: int, d: int) -> List[Dict[str, Any]]:
         and int(r.get("month", 0)) == m
         and int(r.get("day", 0)) == d
     ]
-
 
 def pip_for_day(m: int, d: int):
     ms = markers.get()
@@ -127,9 +153,8 @@ def pip_for_day(m: int, d: int):
         dots.append(ui.span(class_="pip", title="Full Moon"))
     return ui.span(*dots, class_="pip-wrap")
 
-
 def event_blurbs(y: int, m: int, d: int) -> ui.TagChild:
-    """Plain text event titles, auto-wrapping, scaled by container CSS."""
+    """Plain text event titles, container-sized; +N indicator if overflow."""
     day_rows = events_for_day(y, m, d)
     if not day_rows:
         return ui.div(class_="day-events")
@@ -143,10 +168,9 @@ def event_blurbs(y: int, m: int, d: int) -> ui.TagChild:
         items.append(ui.div(f"+{overflow} more", class_="event-more"))
     return ui.div(*items, class_="day-events")
 
-# ---------- UI builders ------------------------------------------------------
+# ---------- UI builders (Calendar) ------------------------------------------
 
 def day_tile_button(y: int, m: int, d: int, highlight: bool) -> ui.TagChild:
-    """One big button per day; shows number + blurbs inside."""
     pid = f"m{m}_d{d}"
     tile_class = "day-tile current-day" if highlight else "day-tile"
     return ui.input_action_button(
@@ -160,9 +184,7 @@ def day_tile_button(y: int, m: int, d: int, highlight: bool) -> ui.TagChild:
         class_="day-tile-btn",
     )
 
-
 def festival_tile_button(y: int, m: int, highlight: bool) -> ui.TagChild:
-    """Day 31 tile with festival label."""
     label = FESTIVALS.get(m)
     if not label:
         return ui.div()
@@ -179,90 +201,46 @@ def festival_tile_button(y: int, m: int, highlight: bool) -> ui.TagChild:
         class_="day-tile-btn",
     )
 
-
 def month_card(m: int, cur: Optional[HarptosDate]) -> ui.TagChild:
     view_year = (cur or {"year": 1492})["year"]
     is_hl = lambda d: bool(cur and cur["month"] == m and cur["day"] == d)
 
-    # Single responsive grid with 30 days (+ festival day 31 when present)
     tiles: List[ui.TagChild] = [day_tile_button(view_year, m, d, is_hl(d)) for d in range(1, DAYS_PER_MONTH + 1)]
     if m in FESTIVALS:
         tiles.append(festival_tile_button(view_year, m, is_hl(31)))
 
     return ui.card(
         ui.card_header(f"{month_name(m)} {view_year}"),
-        ui.div(*tiles, class_="month-grid"),  # responsive, no inner scroll
+        ui.div(*tiles, class_="month-grid"),
         class_="month-card glass",
     )
 
+# ---------- UI builders (Timeline) ------------------------------------------
 
-def day_details_modal(y: int, m: int, d: int) -> ui.TagChild:
-    dr = events_for_day(y, m, d)
-    items: List[ui.TagChild] = []
-    if not dr:
-        items.append(ui.div("No events saved for this day.", class_="muted mb-2"))
-    else:
-        for r in dr:
-            title = r.get("title") or "(Untitled)"
-            notes = r.get("notes") or ""
-            rw = r.get("real_world_date") or "Unknown Real Date"
-            eid = safe_id(r.get("id"))
-            items.append(
-                ui.div(
-                    ui.div(
-                        ui.span(title, class_="event-title"),
-                        ui.input_action_button(
-                            f"edit_{eid}", "✎ Edit", class_="btn btn-link btn-sm edit-link ms-2"
-                        ),
-                        class_="d-flex align-items-center gap-1",
-                    ),
-                    ui.div(rw, class_="event-date"),
-                    ui.div(notes, class_="event-notes"),
-                    class_="event-card",
-                )
-            )
-    return ui.modal(
-        ui.h5(f"{month_name(m)} {d}, {y}", class_="mb-3"),
-        *items,
-        ui.div(
-            ui.input_action_button("ev_add_new", "Add New Event", class_="btn btn-success"),
-            ui.input_action_button("ev_list_close", "Close", class_="btn btn-secondary ms-2"),
-            class_="mt-3",
-        ),
-        easy_close=True,
-        size="l",
+def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagChild:
+    y = int(event.get("year", 1492))
+    m = int(event.get("month", 1))
+    d = int(event.get("day", 1))
+    eid = str(event.get("id"))
+    sid = safe_id(eid)
+
+    title = (event.get("title") or "(Untitled)").strip()
+    sub = f"{ordinal_suffix(d)} of {month_short(m)}, {y}"
+    desc = (event.get("notes") or "").strip()
+
+    inner = ui.div(
+        ui.div(title, class_="tl-title"),
+        ui.div(sub, class_="tl-sub"),
+        ui.div(desc, class_="tl-desc") if expanded and desc else None,
+        class_="tl-card",
     )
 
-
-def event_form_modal(
-    y: int,
-    m: int,
-    d: int,
-    *,
-    title_val: str = "",
-    notes_val: str = "",
-    rw_date: Optional[date] = None,
-    event_id: Optional[str] = None,
-) -> ui.TagChild:
-    if rw_date is None:
-        rw_date = date.today()
-    footer: List[ui.TagChild] = [ui.input_action_button("ev_save", "Save", class_="btn btn-primary me-2")]
-    if event_id:
-        footer.append(ui.input_action_button("ev_delete", "Delete", class_="btn btn-danger me-2"))
-    footer.append(ui.input_action_button("ev_cancel", "Cancel", class_="btn btn-secondary"))
-    return ui.modal(
-        ui.h5("Add / Edit Event", class_="mb-3"),
-        ui.row(
-            ui.input_select("ev_month", "Month", choices=MONTHS, selected=month_name(m)),
-            ui.input_numeric("ev_day", "Day", value=d, min=1, max=31),
-            ui.input_numeric("ev_year", "Year", value=y),
-        ),
-        ui.input_text("ev_title", "Title", value=title_val),
-        ui.input_text_area("ev_desc", "Description", value=notes_val),
-        ui.input_date("ev_real_date", "Real-World Date", value=rw_date),
-        footer=ui.div(*footer),
-        easy_close=True,
-        size="l",
+    btn = ui.input_action_button(f"tl_{sid}", inner, class_="tl-card-btn")
+    return ui.div(
+        ui.div(class_="tl-dot"),
+        btn,
+        class_=("tl-item expanded" if expanded else "tl-item"),
+        style=f"margin-top:{max(0, gap_px)}px;",
     )
 
 # ---------- Page -------------------------------------------------------------
@@ -293,15 +271,33 @@ page = ui.page_fluid(
         ),
         class_="container mt-3",
     ),
-    ui.div(ui.output_ui("calendar"), class_="container-fluid px-3"),
+    ui.div(
+        ui.navset_tab(
+            ui.nav("Calendar", ui.output_ui("calendar")),
+            ui.nav("Timeline", ui.output_ui("timeline")),
+            id="main_nav",
+        ),
+        class_="container-fluid px-3",
+    ),
 )
 
 # ---------- Server -----------------------------------------------------------
 
 def server(input, output, session):
+
     async def reload_events():
         rows = await db.load_events()
-        events.set(rows or [])
+        # normalize ints
+        norm: List[Dict[str, Any]] = []
+        for r in rows or []:
+            try:
+                r["year"] = int(r.get("year", 1492))
+                r["month"] = int(r.get("month", 1))
+                r["day"] = int(r.get("day", 1))
+            except Exception:
+                pass
+            norm.append(r)
+        events.set(norm)
 
     auto_state = {"started": False}
 
@@ -338,15 +334,55 @@ def server(input, output, session):
     @render.text
     def current_date_label():
         h = current.get()
-        return "—" if not h else f"{month_name(h['month'])} {h['day']}, {h['year']}"
+        return "—" if not h else f"{month_short(h['month'])} {h['day']}, {h['year']}"
 
+    # ---------- Calendar render ----------
     @render.ui
     def calendar():
         _ = events.get()  # depend on events for re-render
         h = current.get()
         return ui.div(*[month_card(m, h) for m in range(1, 13)], class_="months-wrap")
 
-    # Controls
+    # ---------- Timeline render ----------
+    @render.ui
+    def timeline():
+        rows = events.get() or []
+        if not rows:
+            return ui.div(ui.p("No events yet. Add events on the calendar to see them here."), class_="glass p-3")
+
+        # sort by Harptos ordinal (chronological)
+        rows_sorted = sorted(
+            rows,
+            key=lambda r: harptos_ordinal(int(r.get("year", 1492)),
+                                          int(r.get("month", 1)),
+                                          int(r.get("day", 1)))
+        )
+
+        # vertical spacing factor: px per day
+        PX_PER_DAY = 6     # adjust if you want more/less vertical spread
+        MIN_GAP = 28       # minimum gap between consecutive cards
+        MAX_GAP = 320      # cap so very large gaps don't create huge blank areas
+
+        items: List[ui.TagChild] = []
+        prev_ord: Optional[int] = None
+        expanded = expanded_ids.get()
+
+        for r in rows_sorted:
+            y, m, d = int(r["year"]), int(r["month"]), int(r["day"])
+            cur_ord = harptos_ordinal(y, m, d)
+            if prev_ord is None:
+                gap = 0
+            else:
+                diff = max(0, cur_ord - prev_ord)
+                gap = min(MAX_GAP, MIN_GAP + diff * PX_PER_DAY)
+            prev_ord = cur_ord
+
+            eid = str(r.get("id"))
+            items.append(timeline_card(r, gap, eid in expanded))
+
+        return ui.div(*items, class_="timeline-wrap")
+
+    # ---------- Current date controls ----------
     @reactive.Effect
     @reactive.event(input.btn_apply_current)
     def _apply_current():
@@ -403,7 +439,7 @@ def server(input, output, session):
         await reload_events()
         ui.notification_show("Events refreshed.", type="message")
 
-    # Day click handlers (1..30 + festival 31)
+    # ---------- Day click handlers (calendar) ----------
     def make_day_handler(m: int, d: int):
         trigger = getattr(input, f"m{m}_d{d}")
 
@@ -424,7 +460,7 @@ def server(input, output, session):
         if m in FESTIVALS:
             make_day_handler(m, 31)
 
-    # Install edit handlers for ✎ links inside modal
+    # ---------- Edit handlers for modal ----------
     @reactive.Effect
     def _install_edit_handlers():
         for e in (events.get() or []):
@@ -455,6 +491,28 @@ def server(input, output, session):
 
             _registered_edit_ids.add(sid)
 
+    # ---------- Timeline click handlers (expand/collapse) ----------
+    @reactive.Effect
+    def _install_timeline_clicks():
+        for e in (events.get() or []):
+            sid = safe_id(e.get("id"))
+            if sid in _registered_tl_clicks:
+                continue
+            trigger = getattr(input, f"tl_{sid}")
+
+            @reactive.Effect
+            @reactive.event(trigger)
+            def _toggle(_eid=str(e.get("id"))):
+                cur = set(expanded_ids.get())
+                if _eid in cur:
+                    cur.remove(_eid)
+                else:
+                    cur.add(_eid)
+                expanded_ids.set(cur)
+
+            _registered_tl_clicks.add(sid)
+
+    # ---------- Modal plumbing ----------
     @reactive.Effect
     @reactive.event(input.ev_list_close)
     def _close_list():
