@@ -214,7 +214,11 @@ def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagC
         ui.div(desc, class_="tl-desc") if (expanded and desc) else None,
         class_="tl-card",
     )
-    btn = ui.input_action_button(f"tl_{sid}", inner, class_="tl-card-btn", width="100%")
+    btn = ui.tags.button(
+        inner,
+        class_="tl-card-btn",
+        **{"type": "button", "data-tl-id": eid}
+    )
     return ui.div(
         ui.div(class_="tl-dot"),
         btn,
@@ -233,7 +237,10 @@ bg_video = ui.tags.video(
 bg_overlay = ui.div(id="bg-overlay")  # subtle vignette/darken layer
 
 page = ui.page_fluid(
-    ui.head_content(ui.tags.link(rel="stylesheet", href="styles.css")),
+    ui.head_content(
+        ui.tags.link(rel="stylesheet", href="styles.css"),
+        ui.tags.script(src="js/delegates.js"),
+    ),
     # Background elements (fixed, full-screen)
     bg_video,
     bg_overlay,
@@ -493,6 +500,43 @@ def server(input, output, session):
                 expanded_ids.set(cur)
             _registered_tl_clicks.add(sid)
 
+    
+        # ---- JS-delegated handlers (resilient to re-render) --------------------
+
+    @reactive.Effect
+    @reactive.event(input.edit_event_clicked)
+    def _open_editor_from_js():
+        payload = input.edit_event_clicked()
+        eid = payload.get("id") if isinstance(payload, dict) else payload
+        if not eid:
+            return
+        ev = next((ev for ev in (events.get() or []) if str(ev.get("id")) == str(eid)), None)
+        if not ev:
+            ui.notification_show("Event not found.", type="warning")
+            return
+        y = int(ev.get("year", 1492)); m = int(ev.get("month", 1)); d = int(ev.get("day", 1))
+        selected_date.set({"year": y, "month": m, "day": d})
+        selected_event_id.set(str(ev.get("id")))
+        ui.modal_show(event_form_modal(
+            y, m, d,
+            title_val=ev.get("title") or "",
+            notes_val=ev.get("notes") or "",
+            rw_date=(date.fromisoformat(ev["real_world_date"]) if ev.get("real_world_date") else None),
+            event_id=str(ev.get("id")),
+        ))
+
+    @reactive.Effect
+    @reactive.event(input.tl_toggle)
+    def _toggle_from_js():
+        eid = str(input.tl_toggle() or "")
+        if not eid:
+            return
+        cur = set(expanded_ids.get())
+        if eid in cur: cur.remove(eid)
+        else:          cur.add(eid)
+        expanded_ids.set(cur)
+
+    
     # ---- Modal utils -------------------------------------------------------
 
     @reactive.Effect
@@ -579,7 +623,11 @@ def day_details_modal(y: int, m: int, d: int) -> ui.TagChild:
                 ui.div(
                     ui.div(
                         ui.span(title, class_="event-title"),
-                        ui.input_action_button(f"edit_{eid}", "✎ Edit", class_="btn btn-link btn-sm edit-link ms-2"),
+                        ui.tags.button(
+                            "✎ Edit",
+                            class_="btn btn-link btn-sm edit-link ms-2 edit-event-btn",
+                            **{"type": "button", "data-edit-id": str(r.get("id"))}
+                        ),
                         class_="d-flex align-items-center gap-1",
                     ),
                     ui.div(rw, class_="event-date"),
