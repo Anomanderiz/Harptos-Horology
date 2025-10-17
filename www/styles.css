@@ -1,5 +1,6 @@
-/* Full-width year grid; square day tiles; the entire day tile is the button.
-   Event titles are shown as plain text inside each tile (no event chips). */
+/* Full-width year grid; square day tiles; entire day tile is the button.
+   Event titles are plain text inside each tile (no event chips).
+   CURRENT-DAY FIX: Only .day-num.current is green; others are neutral. */
 :root{
   --fg:#fff;
   --panel:#35669b;
@@ -66,16 +67,25 @@ html,body{ background:#0e243a; color:var(--fg); min-height:100%; }
   container-type:inline-size;  /* cqw for scalable text */
 }
 
-/* Day number pill (not a button) */
+/* Day number pill (neutral by default) */
 .day-num{
   position:absolute; top:8px; left:8px; z-index:2;
   min-width:2.6ch; height:28px; line-height:26px;
   padding:0 .6ch; text-align:center;
   font-weight:700; font-size:clamp(11px,2.2cqw,16px);
-  color:#0a2f0a;
-  background:#b7ffb1; border:1px solid #7fdc72; border-radius:8px;
+  color:#e7f0ff;                                 /* neutral text */
+  background:rgba(0,0,0,0.15);                   /* NEUTRAL background */
+  border:1px solid rgba(255,255,255,0.35);       /* NEUTRAL border */
+  border-radius:8px;
 }
-.day-num.current{ box-shadow:0 0 0 2px rgba(183,255,177,0.5) inset; }
+
+/* Current day ONLY */
+.day-num.current{
+  color:#0a2f0a;
+  background:#b7ffb1;
+  border-color:#7fdc72;
+  box-shadow:0 0 0 2px rgba(183,255,177,0.45) inset;
+}
 
 /* Moon pips */
 .pip-wrap{ position:absolute; right:8px; top:10px; display:flex; gap:4px; z-index:2; }
