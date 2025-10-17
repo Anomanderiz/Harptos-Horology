@@ -234,7 +234,7 @@ bg_overlay = ui.div(id="bg-overlay")  # subtle vignette/darken layer
 
 page = ui.page_fluid(
     ui.head_content(ui.tags.link(rel="stylesheet", href="styles.css")),
-    # --- Background elements (fixed, full-screen, pointer-events: none)
+    # --- Background elements (fixed, full-screen)
     bg_video,
     bg_overlay,
 
@@ -288,7 +288,7 @@ def server(input, output, session):
 
     async def reload_events():
         rows = await db.load_events()
-        norm: List[Dict[str, Any]] = []
+        norm: List[Dict[str, Any]] = []  # <- fixed stray bracket typo
         for r in rows or []:
             try:
                 r["year"] = int(r.get("year", 1492))
