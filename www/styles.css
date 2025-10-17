@@ -11,30 +11,38 @@
   --muted:#bfbfbf; --gap:18px;
 }
 
-/* --- Video background ---------------------------------------------------- */
+/* --- Video background (now ABOVE page background, BELOW content) --------- */
 #bg-video{
   position:fixed; inset:0;
   width:100%; height:100%;
-  object-fit:cover; z-index:-20;
-  background:#000; pointer-events:none;
+  object-fit:cover;
+  z-index:0;                 /* was negative; that hid it behind body bg */
+  background:#000;
+  pointer-events:none;
 }
 #bg-overlay{
-  position:fixed; inset:0; z-index:-10; pointer-events:none;
+  position:fixed; inset:0; z-index:1; pointer-events:none;
   /* subtle vignette/darken to keep UI readable on bright frames */
   background:
-    radial-gradient(1200px 800px at 20% -10%, rgba(0,0,0,.55) 0%, transparent 60%),
-    radial-gradient(1200px 800px at 80% 110%, rgba(0,0,0,.55) 0%, transparent 60%),
-    linear-gradient(180deg, rgba(0,0,0,.30), rgba(0,0,0,.45));
+    radial-gradient(1200px 800px at 20% -10%, rgba(0,0,0,.45) 0%, transparent 60%),
+    radial-gradient(1200px 800px at 80% 110%, rgba(0,0,0,.45) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.35));
 }
+
+/* Lift all regular content above the video/overlay */
+body > *:not(#bg-video):not(#bg-overlay){
+  position:relative; z-index:2;
+}
+
 /* Respect reduced-motion preferences */
 @media (prefers-reduced-motion: reduce){
   #bg-video{ display:none; }
   #bg-overlay{ background: rgba(0,0,0,.6); }
 }
 
+/* Root background must be transparent so the video is visible */
 html,body{
-  /* fallback if video can’t load */
-  background: var(--bg);
+  background: transparent !important;   /* <— key change */
   color:var(--gold);
   min-height:100%;
 }
