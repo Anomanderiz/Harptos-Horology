@@ -1,10 +1,9 @@
 # app.py
 # ------------------------------------------------------------------------------
-# Harptos – Calendar + Timeline (Shiny version-agnostic: no ui.nav usage)
-# - Calendar: responsive month grid; festival day 31; current day = red tile
-# - Timeline: chronological list, vertical spacing proportional to day gap
-# - View switcher uses radio buttons (works on Shiny 1.5.0+)
-# - FIX: timeline cards expand/collapse reliably on click
+# Harptos – Calendar + Timeline with Video Backdrop
+# - Version-agnostic Shiny (no ui.nav usage)
+# - Timeline cards expand on click
+# - Background video (Backdrop.webm in /www) with overlay
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -44,6 +43,7 @@ FESTIVALS: Dict[int, str] = {
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "www")
 
+
 # ---------- Optional markers (moon phases) -----------------------------------
 
 def load_markers() -> Dict[str, List[Dict[str, int]]]:
@@ -56,6 +56,7 @@ def load_markers() -> Dict[str, List[Dict[str, int]]]:
         except Exception as e:
             print("[App] moon_markers.json load failed:", repr(e))
     return {"new": [], "full": []}
+
 
 # ---------- Utils ------------------------------------------------------------
 
@@ -101,6 +102,7 @@ def advance_one(h: HarptosDate) -> HarptosDate:
         }
     return {"year": y, "month": 1, "day": 1}
 
+
 # ---------- Reactive state ---------------------------------------------------
 
 db = SupaClient()
@@ -116,6 +118,7 @@ selected_event_id: reactive.Value[Optional[str]] = reactive.Value(None)
 expanded_ids: reactive.Value[Set[str]] = reactive.Value(set())
 _registered_edit_ids: Set[str] = set()
 _registered_tl_clicks: Set[str] = set()
+
 
 # ---------- Calendar helpers -------------------------------------------------
 
@@ -191,6 +194,7 @@ def month_card(m: int, cur: Optional[HarptosDate]) -> ui.TagChild:
         class_="month-card glass",
     )
 
+
 # ---------- Timeline helpers -------------------------------------------------
 
 def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagChild:
@@ -217,10 +221,23 @@ def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagC
         style=f"margin-top:{max(0, gap_px)}px;",
     )
 
+
 # ---------- UI ----------------------------------------------------------------
+
+# Background video + overlay go at the very top of the body so they sit behind all content.
+bg_video = ui.tags.video(
+    ui.tags.source(src="Backdrop.webm", type="video/webm"),
+    id="bg-video",
+    **{"autoplay": "", "muted": "", "loop": "", "playsinline": "", "preload": "auto"}
+)
+bg_overlay = ui.div(id="bg-overlay")  # subtle vignette/darken layer
 
 page = ui.page_fluid(
     ui.head_content(ui.tags.link(rel="stylesheet", href="styles.css")),
+    # --- Background elements (fixed, full-screen, pointer-events: none)
+    bg_video,
+    bg_overlay,
+
     ui.div(
         ui.div(ui.h4("Harptos Horology", class_="mb-0")),
         ui.div(ui.output_text("current_date_label"), class_="ms-auto text-on-dark"),
@@ -264,13 +281,14 @@ page = ui.page_fluid(
     ui.div(ui.output_ui("main_view"), class_="container-fluid px-3"),
 )
 
+
 # ---------- Server -----------------------------------------------------------
 
 def server(input, output, session):
 
     async def reload_events():
         rows = await db.load_events()
-        norm: List[Dict[str, Any]] = []
+        norm: List[Dict[str, Any]]] = []
         for r in rows or []:
             try:
                 r["year"] = int(r.get("year", 1492))
@@ -330,7 +348,6 @@ def server(input, output, session):
         if not rows:
             return ui.div(ui.p("No events yet. Add events on the calendar to see them here."), class_="glass p-3")
 
-        # Chronological order
         rows_sorted = sorted(
             rows,
             key=lambda r: harptos_ordinal(int(r.get("year", 1492)),
@@ -338,24 +355,19 @@ def server(input, output, session):
                                           int(r.get("day", 1)))
         )
 
-        PX_PER_DAY = 6   # vertical pixels per day gap (tweak to taste)
-        MIN_GAP   = 28   # minimum gap between cards
-        MAX_GAP   = 320  # cap for very large gaps
+        PX_PER_DAY = 6
+        MIN_GAP   = 28
+        MAX_GAP   = 320
 
         items: List[ui.TagChild] = []
         prev_ord: Optional[int] = None
-        expanded = expanded_ids.get()  # <--- dependency (keeps timeline reactive to clicks)
+        expanded = expanded_ids.get()  # dependency
 
         for r in rows_sorted:
             y, m, d = int(r["year"]), int(r["month"]), int(r["day"])
             cur_ord = harptos_ordinal(y, m, d)
-            if prev_ord is None:
-                gap = 0
-            else:
-                diff = max(0, cur_ord - prev_ord)
-                gap = min(MAX_GAP, MIN_GAP + diff * PX_PER_DAY)
+            gap = 0 if prev_ord is None else min(MAX_GAP, MIN_GAP + max(0, cur_ord - prev_ord) * PX_PER_DAY)
             prev_ord = cur_ord
-
             eid = str(r.get("id"))
             items.append(timeline_card(r, gap, eid in expanded))
 
@@ -365,8 +377,7 @@ def server(input, output, session):
     @render.ui
     def main_view():
         sel = input.view_select() or "calendar"
-        # explicit dependency so clicks always re-render when on Timeline
-        _ = expanded_ids.get() if sel == "timeline" else None  # <--- key fix
+        _ = expanded_ids.get() if sel == "timeline" else None
         return build_timeline_ui() if sel == "timeline" else build_calendar_ui()
 
     # ---- Controls -----------------------------------------------------------
@@ -465,9 +476,8 @@ def server(input, output, session):
     # ---- Timeline click handlers (expand/collapse) -------------------------
     @reactive.Effect
     def _install_timeline_clicks():
-        # re-run when events change OR when the user switches to Timeline
         _ = events.get()
-        _ = input.view_select()  # ensures bindings exist right after switching views
+        _ = input.view_select()
         for e in (events.get() or []):
             sid = safe_id(e.get("id"))
             if sid in _registered_tl_clicks:
@@ -550,6 +560,7 @@ def server(input, output, session):
         ui.modal_show(day_details_modal(y, m, d))
         ui.notification_show("Event saved.", type="message")
 
+
 # ---------- Day details & Event form modals ---------------------------------
 
 def day_details_modal(y: int, m: int, d: int) -> ui.TagChild:
@@ -604,5 +615,6 @@ def event_form_modal(y: int, m: int, d: int, *, title_val: str = "", notes_val: 
         ui.input_date("ev_real_date", "Real-World Date", value=rw_date),
         footer=ui.div(*footer), easy_close=True, size="l",
     )
+
 
 app = App(page, server=server, static_assets=ASSETS_DIR)
