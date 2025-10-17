@@ -3,7 +3,8 @@
 # Harptos – Calendar + Timeline (Shiny version-agnostic: no ui.nav usage)
 # - Calendar: responsive month grid; festival day 31; current day = red tile
 # - Timeline: chronological list, vertical spacing proportional to day gap
-# - View switcher uses radio buttons so it works on Shiny 1.5.0 (no ui.nav)
+# - View switcher uses radio buttons (works on Shiny 1.5.0+)
+# - FIX: timeline cards expand/collapse reliably on click
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -111,7 +112,8 @@ markers: reactive.Value[Dict[str, List[Dict[str, int]]]] = reactive.Value({"new"
 selected_date: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
 selected_event_id: reactive.Value[Optional[str]] = reactive.Value(None)
 
-expanded_ids: reactive.Value[Set[str]] = reactive.Value(set())   # timeline expanded cards
+# Timeline UI state
+expanded_ids: reactive.Value[Set[str]] = reactive.Value(set())
 _registered_edit_ids: Set[str] = set()
 _registered_tl_clicks: Set[str] = set()
 
@@ -243,7 +245,7 @@ page = ui.page_fluid(
         ),
         class_="container mt-3",
     ),
-    # ----- Version-agnostic view switcher (Calendar / Timeline)
+    # View switcher (Calendar / Timeline)
     ui.div(
         ui.card(
             ui.card_header("View"),
@@ -342,7 +344,7 @@ def server(input, output, session):
 
         items: List[ui.TagChild] = []
         prev_ord: Optional[int] = None
-        expanded = expanded_ids.get()
+        expanded = expanded_ids.get()  # <--- dependency (keeps timeline reactive to clicks)
 
         for r in rows_sorted:
             y, m, d = int(r["year"]), int(r["month"]), int(r["day"])
@@ -363,6 +365,8 @@ def server(input, output, session):
     @render.ui
     def main_view():
         sel = input.view_select() or "calendar"
+        # explicit dependency so clicks always re-render when on Timeline
+        _ = expanded_ids.get() if sel == "timeline" else None  # <--- key fix
         return build_timeline_ui() if sel == "timeline" else build_calendar_ui()
 
     # ---- Controls -----------------------------------------------------------
@@ -459,9 +463,11 @@ def server(input, output, session):
             _registered_edit_ids.add(sid)
 
     # ---- Timeline click handlers (expand/collapse) -------------------------
-
     @reactive.Effect
     def _install_timeline_clicks():
+        # re-run when events change OR when the user switches to Timeline
+        _ = events.get()
+        _ = input.view_select()  # ensures bindings exist right after switching views
         for e in (events.get() or []):
             sid = safe_id(e.get("id"))
             if sid in _registered_tl_clicks:
