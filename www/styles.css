@@ -3,6 +3,7 @@
    - Black background, glass panels with gold borders
    - Gold text, red accents
    - Current day tile is solid red
+   - Forms (including Current Date Controls) styled dark/gold
    ============================================================ */
 
 :root{
@@ -43,7 +44,38 @@ html, body{
   box-shadow: 0 0 0 2px rgba(212,175,55,.08) inset, 0 10px 30px rgba(0,0,0,.35);
 }
 
-/* ---------------- Cards / Months grid ---------------- */
+/* ---------------- Generic “glass” cards (applies to Current Date Controls) ---------------- */
+.glass{
+  background: linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bot) 100%);
+  border: 1px solid var(--gold-dim);
+  border-radius: 14px;
+  padding: 12px 14px;
+  color: var(--gold-soft);
+  box-shadow: 0 0 0 2px rgba(212,175,55,.07) inset, 0 8px 30px rgba(0,0,0,.4);
+}
+.glass .card-header{
+  background: transparent;
+  border-bottom: 1px solid rgba(212,175,55,.35);
+  color: var(--gold);
+  letter-spacing: .3px;
+  font-weight: 700;
+  padding: 4px 0 10px 0;
+  font-size: clamp(14px, 1.1vw, 18px);
+}
+
+/* Form styling inside any glass card (labels + inputs/selects) */
+.glass .form-label, .glass label{ color: var(--gold) !important; font-weight: 700; }
+.glass .form-control, .glass .form-select{
+  background: #0f0f11; color: var(--gold) !important;
+  border: 1px solid rgba(212,175,55,.45);
+}
+.glass .form-control::placeholder{ color: #9a8452; }
+.glass .form-control:focus, .glass .form-select:focus{
+  border-color: color-mix(in srgb, var(--gold) 50%, var(--red) 50%);
+  box-shadow: 0 0 0 .2rem rgba(179,28,28,.35);
+}
+
+/* ---------------- Months grid ---------------- */
 .months-wrap{
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -54,23 +86,8 @@ html, body{
 @media (max-width: 1100px){ .months-wrap{ grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px){  .months-wrap{ grid-template-columns: 1fr; } }
 
-.glass.month-card{
+.glass.month-card{ /* inherits .glass; keeps selector for clarity */
   background: linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bot) 100%);
-  border: 1px solid var(--gold-dim);
-  border-radius: 14px;
-  padding: 12px 14px;
-  color: var(--gold-soft);
-  box-shadow: 0 0 0 2px rgba(212,175,55,.07) inset, 0 8px 30px rgba(0,0,0,.4);
-}
-
-.card-header{
-  background: transparent;
-  border-bottom: 1px solid rgba(212,175,55,.35);
-  color: var(--gold);
-  letter-spacing: .3px;
-  font-weight: 700;
-  padding: 4px 0 10px 0;
-  font-size: clamp(14px, 1.1vw, 18px);
 }
 
 /* 3 rows × 10 columns */
