@@ -2,7 +2,7 @@
 # ------------------------------------------------------------------------------
 # Harptos – Calendar + Timeline with Video Backdrop
 # - Version-agnostic Shiny (no ui.nav usage)
-# - Timeline cards expand on click
+# - Timeline cards expand on click (robust single binding per card)
 # - Background video (Backdrop.webm in /www) with overlay
 # ------------------------------------------------------------------------------
 
@@ -43,7 +43,6 @@ FESTIVALS: Dict[int, str] = {
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "www")
 
-
 # ---------- Optional markers (moon phases) -----------------------------------
 
 def load_markers() -> Dict[str, List[Dict[str, int]]]:
@@ -56,7 +55,6 @@ def load_markers() -> Dict[str, List[Dict[str, int]]]:
         except Exception as e:
             print("[App] moon_markers.json load failed:", repr(e))
     return {"new": [], "full": []}
-
 
 # ---------- Utils ------------------------------------------------------------
 
@@ -83,7 +81,6 @@ def festivals_before(month: int) -> int:
     return sum(1 for m in FESTIVALS if m < month)
 
 def harptos_ordinal(y: int, m: int, d: int) -> int:
-    """Absolute day index (365 days/year = 12*30 + 5 festivals)."""
     base = y * 365
     before = (m - 1) * 30 + festivals_before(m)
     day_index = before + (30 if (d == 31 and m in FESTIVALS) else d - 1)
@@ -102,7 +99,6 @@ def advance_one(h: HarptosDate) -> HarptosDate:
         }
     return {"year": y, "month": 1, "day": 1}
 
-
 # ---------- Reactive state ---------------------------------------------------
 
 db = SupaClient()
@@ -117,8 +113,7 @@ selected_event_id: reactive.Value[Optional[str]] = reactive.Value(None)
 # Timeline UI state
 expanded_ids: reactive.Value[Set[str]] = reactive.Value(set())
 _registered_edit_ids: Set[str] = set()
-_registered_tl_clicks: Set[str] = set()
-
+_registered_tl_clicks: Set[str] = set()   # guards against duplicate bindings
 
 # ---------- Calendar helpers -------------------------------------------------
 
@@ -135,10 +130,8 @@ def pip_for_day(m: int, d: int):
     if not (has_new or has_full):
         return None
     dots = []
-    if has_new:
-        dots.append(ui.span(class_="pip", title="New Moon"))
-    if has_full:
-        dots.append(ui.span(class_="pip", title="Full Moon"))
+    if has_new:  dots.append(ui.span(class_="pip", title="New Moon"))
+    if has_full: dots.append(ui.span(class_="pip", title="Full Moon"))
     return ui.span(*dots, class_="pip-wrap")
 
 def event_blurbs(y: int, m: int, d: int) -> ui.TagChild:
@@ -194,7 +187,6 @@ def month_card(m: int, cur: Optional[HarptosDate]) -> ui.TagChild:
         class_="month-card glass",
     )
 
-
 # ---------- Timeline helpers -------------------------------------------------
 
 def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagChild:
@@ -213,7 +205,7 @@ def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagC
         ui.div(desc, class_="tl-desc") if (expanded and desc) else None,
         class_="tl-card",
     )
-    btn = ui.input_action_button(f"tl_{sid}", inner, class_="tl-card-btn")
+    btn = ui.input_action_button(f"tl_{sid}", inner, class_="tl-card-btn", width="100%")
     return ui.div(
         ui.div(class_="tl-dot"),
         btn,
@@ -221,22 +213,18 @@ def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagC
         style=f"margin-top:{max(0, gap_px)}px;",
     )
 
-
 # ---------- UI ----------------------------------------------------------------
 
-# Background video + overlay go at the very top of the body so they sit behind all content.
 bg_video = ui.tags.video(
     ui.tags.source(src="Backdrop.webm", type="video/webm"),
     id="bg-video",
     **{"autoplay": "", "muted": "", "loop": "", "playsinline": "", "preload": "auto"}
 )
-bg_overlay = ui.div(id="bg-overlay")  # subtle vignette/darken layer
+bg_overlay = ui.div(id="bg-overlay")
 
 page = ui.page_fluid(
     ui.head_content(ui.tags.link(rel="stylesheet", href="styles.css")),
-    # --- Background elements (fixed, full-screen)
-    bg_video,
-    bg_overlay,
+    bg_video, bg_overlay,
 
     ui.div(
         ui.div(ui.h4("Harptos Horology", class_="mb-0")),
@@ -262,25 +250,20 @@ page = ui.page_fluid(
         ),
         class_="container mt-3",
     ),
-    # View switcher (Calendar / Timeline)
     ui.div(
         ui.card(
             ui.card_header("View"),
             ui.input_radio_buttons(
-                "view_select",
-                None,
+                "view_select", None,
                 choices={"calendar": "Calendar", "timeline": "Timeline"},
-                selected="calendar",
-                inline=True,
+                selected="calendar", inline=True,
             ),
             class_="glass",
         ),
         class_="container mt-3",
     ),
-    # Main view container
     ui.div(ui.output_ui("main_view"), class_="container-fluid px-3"),
 )
-
 
 # ---------- Server -----------------------------------------------------------
 
@@ -288,7 +271,7 @@ def server(input, output, session):
 
     async def reload_events():
         rows = await db.load_events()
-        norm: List[Dict[str, Any]] = []  # <- fixed stray bracket typo
+        norm: List[Dict[str, Any]] = []
         for r in rows or []:
             try:
                 r["year"] = int(r.get("year", 1492))
@@ -317,7 +300,6 @@ def server(input, output, session):
         markers.set(load_markers())
         await reload_events()
 
-    # daily +1 tick (persist)
     @reactive.Effect
     async def _auto_tick():
         reactive.invalidate_later(86_400_000)
@@ -336,10 +318,10 @@ def server(input, output, session):
         h = current.get()
         return "—" if not h else f"{month_short(h['month'])} {h['day']}, {h['year']}"
 
-    # ---- Builders for the two views (UI only) -------------------------------
+    # ---- Builders for Calendar / Timeline ----------------------------------
 
     def build_calendar_ui() -> ui.TagChild:
-        _ = events.get()  # depend on events so calendar re-renders
+        _ = events.get()
         h = current.get()
         return ui.div(*[month_card(m, h) for m in range(1, 13)], class_="months-wrap")
 
@@ -373,7 +355,6 @@ def server(input, output, session):
 
         return ui.div(*items, class_="timeline-wrap")
 
-    # Single render that switches between the two views
     @render.ui
     def main_view():
         sel = input.view_select() or "calendar"
@@ -385,10 +366,8 @@ def server(input, output, session):
     @reactive.Effect
     @reactive.event(input.btn_apply_current)
     def _apply_current():
-        try:
-            m = MONTHS.index(input.set_month()) + 1
-        except ValueError:
-            m = 1
+        try: m = MONTHS.index(input.set_month()) + 1
+        except ValueError: m = 1
         d = int(input.set_day() or 1)
         y = int(input.set_year() or 1492)
         if d < 1: d = 1
@@ -428,7 +407,7 @@ def server(input, output, session):
         await reload_events()
         ui.notification_show("Events refreshed.", type="message")
 
-    # ---- Calendar day click handlers ---------------------------------------
+    # ---- Calendar day handlers ---------------------------------------------
 
     def make_day_handler(m: int, d: int):
         trigger = getattr(input, f"m{m}_d{d}")
@@ -444,19 +423,16 @@ def server(input, output, session):
             ui.modal_show(day_details_modal(y, m, d))
 
     for m in range(1, 13):
-        for d in range(1, DAYS_PER_MONTH + 1):
-            make_day_handler(m, d)
-        if m in FESTIVALS:
-            make_day_handler(m, 31)
+        for d in range(1, DAYS_PER_MONTH + 1): make_day_handler(m, d)
+        if m in FESTIVALS: make_day_handler(m, 31)
 
-    # ---- Edit handlers for the day-details modal ---------------------------
+    # ---- Day-details modal edit handlers -----------------------------------
 
     @reactive.Effect
     def _install_edit_handlers():
         for e in (events.get() or []):
             sid = safe_id(e.get("id"))
-            if sid in _registered_edit_ids:
-                continue
+            if sid in _registered_edit_ids: continue
             trigger = getattr(input, f"edit_{sid}")
             @reactive.Effect
             @reactive.event(trigger)
@@ -473,11 +449,12 @@ def server(input, output, session):
                 ))
             _registered_edit_ids.add(sid)
 
-    # ---- Timeline click handlers (expand/collapse) -------------------------
+    # ---- Timeline click handlers (single-shot binding per card) ------------
+
     @reactive.Effect
-    def _install_timeline_clicks():
-        _ = events.get()
-        _ = input.view_select()
+    def _install_timeline_clicks_once():
+        # Bind ONLY when we see new IDs; do not depend on view switching,
+        # which can otherwise accumulate multiple handlers per ID.
         for e in (events.get() or []):
             sid = safe_id(e.get("id"))
             if sid in _registered_tl_clicks:
@@ -486,6 +463,7 @@ def server(input, output, session):
             @reactive.Effect
             @reactive.event(trigger)
             def _toggle(_eid=str(e.get("id"))):
+                # Single, idempotent toggle; executes exactly once per click.
                 cur = set(expanded_ids.get())
                 if _eid in cur: cur.remove(_eid)
                 else:           cur.add(_eid)
@@ -530,10 +508,8 @@ def server(input, output, session):
     @reactive.Effect
     @reactive.event(input.ev_save)
     async def _save_event():
-        try:
-            m = MONTHS.index(input.ev_month()) + 1
-        except ValueError:
-            m = (current.get() or {"month": 1})["month"]
+        try: m = MONTHS.index(input.ev_month()) + 1
+        except ValueError: m = (current.get() or {"month": 1})["month"]
         d = int(input.ev_day() or (current.get() or {"day": 1})["day"])
         y = int(input.ev_year() or (current.get() or {"year": 1492})["year"])
         title = (input.ev_title() or "").strip() or None
@@ -559,7 +535,6 @@ def server(input, output, session):
         ui.modal_remove()
         ui.modal_show(day_details_modal(y, m, d))
         ui.notification_show("Event saved.", type="message")
-
 
 # ---------- Day details & Event form modals ---------------------------------
 
@@ -615,6 +590,5 @@ def event_form_modal(y: int, m: int, d: int, *, title_val: str = "", notes_val: 
         ui.input_date("ev_real_date", "Real-World Date", value=rw_date),
         footer=ui.div(*footer), easy_close=True, size="l",
     )
-
 
 app = App(page, server=server, static_assets=ASSETS_DIR)
