@@ -1,7 +1,7 @@
 # app.py
 # ------------------------------------------------------------------------------
 # Harptos – Calendar + Timeline with Video Backdrop
-# Refined Version
+# Refined Version (Fixed Timeline Toggle Bug)
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -15,12 +15,10 @@ from typing import Any, Dict, List, Optional, Set
 import anyio
 from shiny import App, reactive, render, ui
 
-# Mocking SupaClient import if not present in environment, 
-# assuming the user has the file 'supa.py' locally.
+# Mocking SupaClient import if not present in environment
 try:
     from supa import SupaClient, HarptosDate, generate_event_id
 except ImportError:
-    # Fallback for standalone testing if supa.py is missing
     import uuid
     class SupaClient:
         async def load_events(self): return []
@@ -61,7 +59,7 @@ FESTIVALS: Dict[int, str] = {
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "www")
 
 # ------------------------------------------------------------------------------
-# Injected CSS & JS (Optimized for Delegation)
+# Injected CSS & JS
 # ------------------------------------------------------------------------------
 
 CUSTOM_CSS = """
@@ -95,7 +93,6 @@ CUSTOM_CSS = """
 CUSTOM_JS = """
 $(document).ready(function() {
     // 1. Delegated Calendar Day Click
-    // Replaces 365+ server observers with 1 global listener
     $(document).on('click', '.day-tile-btn', function() {
         let m = $(this).data('month');
         let d = $(this).data('day');
@@ -109,7 +106,7 @@ $(document).ready(function() {
         wrapper.toggleClass('expanded');
         
         let eid = $(this).data('tl-id');
-        // Send to server to persist expanded state (optional, but good for view switching)
+        // Send to server to persist expanded state without waiting for re-render
         Shiny.setInputValue('tl_toggle', eid, {priority: 'event'});
     });
 
@@ -154,15 +151,11 @@ def ordinal_suffix(n: int) -> str:
 def _iso(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if d else None
 
-def safe_id(s: str) -> str:
-    """Sanitize string for use in DOM IDs."""
-    return re.sub(r'[^a-zA-Z0-9_-]', '_', str(s))
-
 def festivals_before(month: int) -> int:
     return sum(1 for m in FESTIVALS if m < month)
 
 def harptos_ordinal(y: int, m: int, d: int) -> int:
-    """Absolute day index (365 days/year = 12*30 + 5 festivals)."""
+    """Absolute day index."""
     base = y * 365
     before = (m - 1) * 30 + festivals_before(m)
     day_index = before + (30 if (d == 31 and m in FESTIVALS) else d - 1)
@@ -177,13 +170,11 @@ def _priority_from_title(title: str) -> int:
 def advance_one(h: HarptosDate) -> HarptosDate:
     y, m, d = h["year"], h["month"], h["day"]
     if d == 31:
-        # Was a festival, move to next month
         m2 = 1 if m == 12 else m + 1
         return {"year": y + (m == 12), "month": m2, "day": 1}
     if 1 <= d < 30:
         return {"year": y, "month": m, "day": d + 1}
     if d == 30:
-        # Check if next is a festival (Day 31) or next month
         return {"year": y, "month": m, "day": 31} if m in FESTIVALS else {
             "year": y + (m == 12), "month": 1 if m == 12 else m + 1, "day": 1
         }
@@ -217,18 +208,13 @@ def event_blurbs(events_list: List[Dict[str, Any]]) -> ui.TagChild:
 def day_tile_button(y: int, m: int, d: int, highlight: bool, 
                     day_events: List[Dict[str, Any]], 
                     markers_data: Dict[str, List]) -> ui.TagChild:
-    """
-    Renders a generic HTML button for a day.
-    We use generic buttons + JS delegation instead of 365 server-side input bindings.
-    """
     tile_class = "day-tile current-day" if highlight else "day-tile"
     
-    # Handle Festival day label (Day 31)
     day_label = str(d)
     extra_cls = "day-num"
     if d == 31:
         day_label = "31" 
-        extra_cls = "day-num festival-num" # You might want to style this distinctively
+        extra_cls = "day-num festival-num"
     
     return ui.tags.button(
         ui.div(
@@ -242,28 +228,22 @@ def day_tile_button(y: int, m: int, d: int, highlight: bool,
             class_=tile_class,
         ),
         class_="day-tile-btn",
-        # Data attributes for the JS listener
         **{"data-month": str(m), "data-day": str(d), "type": "button"}
     )
 
 def month_card(m: int, cur: Optional[HarptosDate], all_events: List[Dict[str, Any]], 
                markers_data: Dict[str, List]) -> ui.TagChild:
     view_year = (cur or {"year": 1492})["year"]
+    is_hl = lambda d: bool(cur and cur["month"] == m and cur["day"] == d)
     
-    def is_hl(d): 
-        return bool(cur and cur["month"] == m and cur["day"] == d)
-    
-    # Filter events for this month once to speed up individual day lookups
+    # Pre-filter events for performance
     month_events = [e for e in all_events if int(e.get("month", 0)) == m and int(e.get("year", 0)) == view_year]
     
     tiles: List[ui.TagChild] = []
-    
-    # Standard 30 days
     for d in range(1, DAYS_PER_MONTH + 1):
         d_evs = [e for e in month_events if int(e.get("day", 0)) == d]
         tiles.append(day_tile_button(view_year, m, d, is_hl(d), d_evs, markers_data))
         
-    # Festival day (31st)
     if m in FESTIVALS:
         d_evs = [e for e in month_events if int(e.get("day", 0)) == 31]
         tiles.append(day_tile_button(view_year, m, 31, is_hl(31), d_evs, markers_data))
@@ -283,8 +263,8 @@ def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagC
     sub = f"{ordinal_suffix(d)} of {month_short(m)}, {y}"
     desc = (event.get("notes") or "").strip()
 
-    # We render 'desc' always, but hide it via CSS if not expanded.
-    # 'expanded' class is toggled by JS for speed, but also set here for server-side state consistency.
+    # We assume server-side expanded state for initial render, 
+    # but client-side toggle handles updates.
     container_cls = "tl-item expanded" if expanded else "tl-item"
 
     inner = ui.div(
@@ -308,7 +288,7 @@ def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagC
     )
 
 # ------------------------------------------------------------------------------
-# Main App Structure
+# Main App
 # ------------------------------------------------------------------------------
 
 bg_video = ui.tags.video(
@@ -323,7 +303,7 @@ page = ui.page_fluid(
         ui.tags.link(rel="stylesheet", href="styles.css"),
         ui.tags.style(CUSTOM_CSS),
         ui.tags.script(CUSTOM_JS),
-        ui.tags.script(src="js/delegates.js"), # Keep existing if present
+        ui.tags.script(src="js/delegates.js"),
     ),
     bg_video,
     bg_overlay,
@@ -370,13 +350,13 @@ page = ui.page_fluid(
 )
 
 # ------------------------------------------------------------------------------
-# Server Logic
+# Server
 # ------------------------------------------------------------------------------
 
 def server(input, output, session):
     db = SupaClient()
 
-    # Reactive Values
+    # State
     current: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
     events: reactive.Value[List[Dict[str, Any]]] = reactive.Value([])
     markers: reactive.Value[Dict[str, List[Dict[str, Any]]]] = reactive.Value({"new": [], "full": []})
@@ -395,7 +375,6 @@ def server(input, output, session):
                 r["year"] = int(r.get("year", 1492))
                 r["month"] = int(r.get("month", 1))
                 r["day"] = int(r.get("day", 1))
-                # Ensure string fields are strings for safe rendering
                 r["title"] = str(r.get("title") or "")
                 r["notes"] = str(r.get("notes") or "")
                 r["id"] = str(r.get("id"))
@@ -406,7 +385,6 @@ def server(input, output, session):
 
     @reactive.Effect
     async def _init():
-        # Load state
         st = await db.get_state_value("current_date", default=None)
         if isinstance(st, dict):
             try:
@@ -425,7 +403,7 @@ def server(input, output, session):
 
     @reactive.Effect
     async def _auto_tick():
-        reactive.invalidate_later(86_400_000) # 24 hours
+        reactive.invalidate_later(86_400_000)
         if not auto_state["started"]:
             auto_state["started"] = True
             return
@@ -440,7 +418,7 @@ def server(input, output, session):
         h = current.get()
         return "—" if not h else f"{month_short(h['month'])} {h['day']}, {h['year']}"
 
-    # ---- Builders ------------------------------------------------------------
+    # ---- View Builders -------------------------------------------------------
 
     def build_calendar_ui() -> ui.TagChild:
         ev_data = events.get()
@@ -453,7 +431,6 @@ def server(input, output, session):
         if not rows:
             return ui.div(ui.p("No events yet.", class_="text-center mt-4"), class_="glass p-3")
 
-        # Sort keys: Date -> Priority (#1) -> Title -> ID
         rows_sorted = sorted(
             rows,
             key=lambda r: (
@@ -470,7 +447,13 @@ def server(input, output, session):
 
         items: List[ui.TagChild] = []
         prev_ord: Optional[int] = None
-        expanded_set = expanded_ids.get()
+        
+        # BUG FIX: ISOLATE dependency here. 
+        # We read the current expanded set for initial rendering, but we do NOT
+        # want to trigger a re-render of the whole timeline when a user toggles a card.
+        # The Client-side JS handles the visual toggle immediately.
+        with reactive.isolate():
+            expanded_set = expanded_ids.get()
 
         for r in rows_sorted:
             y, m, d = int(r["year"]), int(r["month"]), int(r["day"])
@@ -484,39 +467,28 @@ def server(input, output, session):
     @render.ui
     def main_view():
         sel = input.view_select()
-        # We trigger update if expanded_ids changes to keep DOM synced with server state,
-        # even though JS handles the immediate visual toggle.
         if sel == "timeline":
-            _ = expanded_ids.get() 
             return build_timeline_ui()
         return build_calendar_ui()
 
-    # ---- Event Handlers (Delegated) -------------------------------------------
+    # ---- Event Handlers ------------------------------------------------------
 
     @reactive.Effect
     @reactive.event(input.js_date_click)
     def _on_day_click():
-        # Replaces the loop of 365 observers
         data = input.js_date_click()
         if not isinstance(data, dict): return
         
         try:
-            m = int(data.get("month", 0))
-            d = int(data.get("day", 0))
+            m, d = int(data.get("month", 0)), int(data.get("day", 0))
             y = (current.get() or {"year": 1492})["year"]
-            
             if m < 1 or m > 12 or d < 1: return
 
-            # Update state
             current.set({"year": y, "month": m, "day": d})
             selected_date.set({"year": y, "month": m, "day": d})
-            
-            # Sync input controls
             ui.update_select("set_month", selected=month_name(m))
             ui.update_numeric("set_day", value=d)
             ui.update_numeric("set_year", value=y)
-            
-            # Show Modal
             ui.modal_show(day_details_modal(y, m, d, events.get()))
         except Exception as e:
             print(f"Click error: {e}")
@@ -526,6 +498,7 @@ def server(input, output, session):
     def _on_tl_toggle():
         eid = str(input.tl_toggle() or "")
         if not eid: return
+        # Update state silently in background
         cur = set(expanded_ids.get())
         if eid in cur: cur.remove(eid)
         else: cur.add(eid)
@@ -538,7 +511,6 @@ def server(input, output, session):
         eid = payload.get("id") if isinstance(payload, dict) else payload
         if not eid: return
 
-        # Find event
         all_events = events.get() or []
         ev = next((e for e in all_events if str(e["id"]) == str(eid)), None)
         if not ev:
@@ -571,12 +543,9 @@ def server(input, output, session):
         except ValueError: m = 1
         d = int(input.set_day() or 1)
         y = int(input.set_year() or 1492)
-        
-        # Clamp
         if d < 1: d = 1
         if d > 31: d = 31
         if d == 31 and m not in FESTIVALS: d = 30
-        
         current.set({"year": y, "month": m, "day": d})
 
     @reactive.Effect
@@ -641,7 +610,6 @@ def server(input, output, session):
             await anyio.to_thread.run_sync(lambda: db.delete_event(eid))
             await reload_events()
             ui.notification_show("Event deleted.", type="message")
-            
             h = selected_date.get()
             ui.modal_remove()
             if h:
@@ -657,7 +625,6 @@ def server(input, output, session):
             except ValueError: m = 1
             d = int(input.ev_day() or 1)
             y = int(input.ev_year() or 1492)
-            
             if d == 31 and m not in FESTIVALS: d = 30
             
             eid = selected_event_id.get() or generate_event_id()
@@ -681,11 +648,10 @@ def server(input, output, session):
             ui.notification_show(f"Error saving: {e}", type="error")
 
 # ------------------------------------------------------------------------------
-# Modal Layouts
+# Modals
 # ------------------------------------------------------------------------------
 
 def day_details_modal(y: int, m: int, d: int, all_events: List[Dict[str, Any]]) -> ui.TagChild:
-    # Filter local to ensure modal is up to date
     day_events = [
         r for r in (all_events or [])
         if int(r["year"]) == y and int(r["month"]) == m and int(r["day"]) == d
