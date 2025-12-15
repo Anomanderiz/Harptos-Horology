@@ -1,7 +1,7 @@
 # app.py
 # ------------------------------------------------------------------------------
 # Harptos – Calendar + Timeline with Video Backdrop
-# Refined Version (Fixed Timeline Toggle Bug)
+# Refined Version (Fixed Modal Stacking & Rendering Performance)
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -10,7 +10,8 @@ import json
 import os
 import re
 from datetime import date
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+from collections import defaultdict
 
 import anyio
 from shiny import App, reactive, render, ui
@@ -88,6 +89,10 @@ CUSTOM_CSS = """
     background: rgba(255, 255, 255, 0.1);
 }
 .pip-wrap { font-size: 0.7rem; color: #ffd700; margin-left: 4px; }
+
+/* Modal Fixes to prevent double-scrollbars or ghosting */
+.modal-backdrop { z-index: 1040 !important; }
+.modal { z-index: 1050 !important; }
 """
 
 CUSTOM_JS = """
@@ -100,13 +105,11 @@ $(document).ready(function() {
     });
 
     // 2. Delegated Timeline Expansion
-    // Toggles CSS immediately for smooth UI, then syncs state to server
     $(document).on('click', '.tl-card-btn', function() {
         let wrapper = $(this).closest('.tl-item');
         wrapper.toggleClass('expanded');
         
         let eid = $(this).data('tl-id');
-        // Send to server to persist expanded state without waiting for re-render
         Shiny.setInputValue('tl_toggle', eid, {priority: 'event'});
     });
 
@@ -231,21 +234,22 @@ def day_tile_button(y: int, m: int, d: int, highlight: bool,
         **{"data-month": str(m), "data-day": str(d), "type": "button"}
     )
 
-def month_card(m: int, cur: Optional[HarptosDate], all_events: List[Dict[str, Any]], 
+def month_card(m: int, cur: Optional[HarptosDate], 
+               indexed_events: Dict[Tuple[int, int, int], List[Dict[str, Any]]], 
                markers_data: Dict[str, List]) -> ui.TagChild:
     view_year = (cur or {"year": 1492})["year"]
     is_hl = lambda d: bool(cur and cur["month"] == m and cur["day"] == d)
     
-    # Pre-filter events for performance
-    month_events = [e for e in all_events if int(e.get("month", 0)) == m and int(e.get("year", 0)) == view_year]
-    
     tiles: List[ui.TagChild] = []
+    
+    # 1-30 Days
     for d in range(1, DAYS_PER_MONTH + 1):
-        d_evs = [e for e in month_events if int(e.get("day", 0)) == d]
+        d_evs = indexed_events.get((view_year, m, d), [])
         tiles.append(day_tile_button(view_year, m, d, is_hl(d), d_evs, markers_data))
         
+    # Festival Day (31st)
     if m in FESTIVALS:
-        d_evs = [e for e in month_events if int(e.get("day", 0)) == 31]
+        d_evs = indexed_events.get((view_year, m, 31), [])
         tiles.append(day_tile_button(view_year, m, 31, is_hl(31), d_evs, markers_data))
         
     return ui.card(
@@ -263,8 +267,6 @@ def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagC
     sub = f"{ordinal_suffix(d)} of {month_short(m)}, {y}"
     desc = (event.get("notes") or "").strip()
 
-    # We assume server-side expanded state for initial render, 
-    # but client-side toggle handles updates.
     container_cls = "tl-item expanded" if expanded else "tl-item"
 
     inner = ui.div(
@@ -424,7 +426,15 @@ def server(input, output, session):
         ev_data = events.get()
         h = current.get()
         ms = markers.get()
-        return ui.div(*[month_card(m, h, ev_data, ms) for m in range(1, 13)], class_="months-wrap")
+        
+        # Performance: Index events by date immediately
+        # Dict[Tuple[year, month, day], List[Event]]
+        indexed = defaultdict(list)
+        for e in ev_data:
+            key = (int(e["year"]), int(e["month"]), int(e["day"]))
+            indexed[key].append(e)
+            
+        return ui.div(*[month_card(m, h, indexed, ms) for m in range(1, 13)], class_="months-wrap")
 
     def build_timeline_ui() -> ui.TagChild:
         rows = events.get() or []
@@ -448,10 +458,7 @@ def server(input, output, session):
         items: List[ui.TagChild] = []
         prev_ord: Optional[int] = None
         
-        # BUG FIX: ISOLATE dependency here. 
-        # We read the current expanded set for initial rendering, but we do NOT
-        # want to trigger a re-render of the whole timeline when a user toggles a card.
-        # The Client-side JS handles the visual toggle immediately.
+        # Read initial state without taking a dependency
         with reactive.isolate():
             expanded_set = expanded_ids.get()
 
@@ -489,6 +496,8 @@ def server(input, output, session):
             ui.update_select("set_month", selected=month_name(m))
             ui.update_numeric("set_day", value=d)
             ui.update_numeric("set_year", value=y)
+            
+            # Show the modal list
             ui.modal_show(day_details_modal(y, m, d, events.get()))
         except Exception as e:
             print(f"Click error: {e}")
@@ -526,6 +535,9 @@ def server(input, output, session):
             try: rw_date = date.fromisoformat(ev["real_world_date"])
             except ValueError: pass
 
+        # CRITICAL FIX: explicitly remove previous modal to prevent conflict
+        ui.modal_remove()
+        
         ui.modal_show(event_form_modal(
             y, m, d,
             title_val=ev.get("title", ""),
@@ -590,6 +602,8 @@ def server(input, output, session):
     def _add_new_from_list():
         h = selected_date.get() or {"year": 1492, "month": 1, "day": 1}
         selected_event_id.set(None)
+        
+        # CRITICAL FIX: Clean removal before showing new modal
         ui.modal_remove()
         ui.modal_show(event_form_modal(h["year"], h["month"], h["day"]))
 
@@ -597,6 +611,7 @@ def server(input, output, session):
     @reactive.event(input.ev_cancel)
     def _cancel_form():
         h = selected_date.get()
+        # CRITICAL FIX: Clean removal before going back
         ui.modal_remove()
         if h:
             ui.modal_show(day_details_modal(h["year"], h["month"], h["day"], events.get()))
@@ -611,6 +626,8 @@ def server(input, output, session):
             await reload_events()
             ui.notification_show("Event deleted.", type="message")
             h = selected_date.get()
+            
+            # CRITICAL FIX: Clean removal
             ui.modal_remove()
             if h:
                 ui.modal_show(day_details_modal(h["year"], h["month"], h["day"], events.get()))
@@ -641,6 +658,8 @@ def server(input, output, session):
             
             selected_date.set({"year": y, "month": m, "day": d})
             selected_event_id.set(None)
+            
+            # CRITICAL FIX: Clean removal
             ui.modal_remove()
             ui.modal_show(day_details_modal(y, m, d, events.get()))
             ui.notification_show("Event saved.", type="message")
