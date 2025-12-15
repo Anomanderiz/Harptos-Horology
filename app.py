@@ -1,7 +1,7 @@
 # app.py
 # ------------------------------------------------------------------------------
 # Harptos – Calendar + Timeline with Video Backdrop
-# Refined Version (Fixed Modal Stacking & Rendering Performance)
+# Refined Version (Fixed Modal Stacking, Input Freezing & Rendering Performance)
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ CUSTOM_CSS = """
 }
 .pip-wrap { font-size: 0.7rem; color: #ffd700; margin-left: 4px; }
 
-/* Modal Fixes to prevent double-scrollbars or ghosting */
+/* Modal Fixes - Ensure z-index is handled correctly if overlaps occur */
 .modal-backdrop { z-index: 1040 !important; }
 .modal { z-index: 1050 !important; }
 """
@@ -497,7 +497,7 @@ def server(input, output, session):
             ui.update_numeric("set_day", value=d)
             ui.update_numeric("set_year", value=y)
             
-            # Show the modal list
+            # Show the modal list (REPLACES existing if open)
             ui.modal_show(day_details_modal(y, m, d, events.get()))
         except Exception as e:
             print(f"Click error: {e}")
@@ -531,13 +531,14 @@ def server(input, output, session):
         selected_event_id.set(str(ev["id"]))
         
         rw_date = None
-        if ev.get("real_world_date"):
-            try: rw_date = date.fromisoformat(ev["real_world_date"])
-            except ValueError: pass
+        raw_rw = ev.get("real_world_date")
+        if raw_rw:
+            try: 
+                rw_date = date.fromisoformat(raw_rw)
+            except (ValueError, TypeError):
+                rw_date = None
 
-        # CRITICAL FIX: explicitly remove previous modal to prevent conflict
-        ui.modal_remove()
-        
+        # Fix: Direct replacement instead of remove+show to prevent freezing
         ui.modal_show(event_form_modal(
             y, m, d,
             title_val=ev.get("title", ""),
@@ -603,18 +604,18 @@ def server(input, output, session):
         h = selected_date.get() or {"year": 1492, "month": 1, "day": 1}
         selected_event_id.set(None)
         
-        # CRITICAL FIX: Clean removal before showing new modal
-        ui.modal_remove()
+        # Fix: Direct replacement
         ui.modal_show(event_form_modal(h["year"], h["month"], h["day"]))
 
     @reactive.Effect
     @reactive.event(input.ev_cancel)
     def _cancel_form():
         h = selected_date.get()
-        # CRITICAL FIX: Clean removal before going back
-        ui.modal_remove()
+        # Fix: Direct replacement ensures we go back to the list cleanly
         if h:
             ui.modal_show(day_details_modal(h["year"], h["month"], h["day"], events.get()))
+        else:
+            ui.modal_remove()
 
     @reactive.Effect
     @reactive.event(input.ev_delete)
@@ -627,10 +628,11 @@ def server(input, output, session):
             ui.notification_show("Event deleted.", type="message")
             h = selected_date.get()
             
-            # CRITICAL FIX: Clean removal
-            ui.modal_remove()
+            # Fix: Direct replacement
             if h:
                 ui.modal_show(day_details_modal(h["year"], h["month"], h["day"], events.get()))
+            else:
+                ui.modal_remove()
         except Exception as e:
             ui.notification_show(f"Error: {e}", type="error")
 
@@ -659,8 +661,7 @@ def server(input, output, session):
             selected_date.set({"year": y, "month": m, "day": d})
             selected_event_id.set(None)
             
-            # CRITICAL FIX: Clean removal
-            ui.modal_remove()
+            # Fix: Direct replacement
             ui.modal_show(day_details_modal(y, m, d, events.get()))
             ui.notification_show("Event saved.", type="message")
         except Exception as e:
