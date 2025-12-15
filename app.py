@@ -1,7 +1,7 @@
 # app.py
 # ------------------------------------------------------------------------------
 # Harptos – Calendar + Timeline with Video Backdrop
-# Refined Version (Fixed Modal Stacking, Input Freezing & Rendering Performance)
+# Refined Version (Fixed Modal Collision & Scroll Glitch)
 # ------------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -89,23 +89,19 @@ CUSTOM_CSS = """
     background: rgba(255, 255, 255, 0.1);
 }
 .pip-wrap { font-size: 0.7rem; color: #ffd700; margin-left: 4px; }
-
-/* Modal Fixes - Ensure z-index is handled correctly if overlaps occur */
-.modal-backdrop { z-index: 1040 !important; }
-.modal { z-index: 1050 !important; }
 """
 
 CUSTOM_JS = """
 $(document).ready(function() {
     // 1. Delegated Calendar Day Click
-    $(document).on('click', '.day-tile-btn', function() {
+    $(document).off('click', '.day-tile-btn').on('click', '.day-tile-btn', function() {
         let m = $(this).data('month');
         let d = $(this).data('day');
         Shiny.setInputValue('js_date_click', {month: m, day: d}, {priority: 'event'});
     });
 
     // 2. Delegated Timeline Expansion
-    $(document).on('click', '.tl-card-btn', function() {
+    $(document).off('click', '.tl-card-btn').on('click', '.tl-card-btn', function() {
         let wrapper = $(this).closest('.tl-item');
         wrapper.toggleClass('expanded');
         
@@ -114,7 +110,8 @@ $(document).ready(function() {
     });
 
     // 3. Delegated Edit Event Click
-    $(document).on('click', '.edit-event-btn', function(e) {
+    // Using .off().on() ensures we don't accidentally bind the listener twice
+    $(document).off('click', '.edit-event-btn').on('click', '.edit-event-btn', function(e) {
         e.stopPropagation(); // Prevent triggering parent day click
         let eid = $(this).data('edit-id');
         Shiny.setInputValue('edit_event_clicked', {id: eid}, {priority: 'event'});
@@ -515,7 +512,7 @@ def server(input, output, session):
 
     @reactive.Effect
     @reactive.event(input.edit_event_clicked)
-    def _on_edit_click():
+    async def _on_edit_click():
         payload = input.edit_event_clicked()
         eid = payload.get("id") if isinstance(payload, dict) else payload
         if not eid: return
@@ -538,7 +535,9 @@ def server(input, output, session):
             except (ValueError, TypeError):
                 rw_date = None
 
-        # Fix: Direct replacement instead of remove+show to prevent freezing
+        # Fix: Remove old, wait for DOM cleanup, then show new
+        ui.modal_remove()
+        await anyio.sleep(0.2)
         ui.modal_show(event_form_modal(
             y, m, d,
             title_val=ev.get("title", ""),
@@ -600,22 +599,24 @@ def server(input, output, session):
 
     @reactive.Effect
     @reactive.event(input.ev_add_new)
-    def _add_new_from_list():
+    async def _add_new_from_list():
         h = selected_date.get() or {"year": 1492, "month": 1, "day": 1}
         selected_event_id.set(None)
         
-        # Fix: Direct replacement
+        # Fix: Transition logic
+        ui.modal_remove()
+        await anyio.sleep(0.2)
         ui.modal_show(event_form_modal(h["year"], h["month"], h["day"]))
 
     @reactive.Effect
     @reactive.event(input.ev_cancel)
-    def _cancel_form():
+    async def _cancel_form():
         h = selected_date.get()
-        # Fix: Direct replacement ensures we go back to the list cleanly
+        # Fix: Transition logic
+        ui.modal_remove()
+        await anyio.sleep(0.2)
         if h:
             ui.modal_show(day_details_modal(h["year"], h["month"], h["day"], events.get()))
-        else:
-            ui.modal_remove()
 
     @reactive.Effect
     @reactive.event(input.ev_delete)
@@ -628,11 +629,11 @@ def server(input, output, session):
             ui.notification_show("Event deleted.", type="message")
             h = selected_date.get()
             
-            # Fix: Direct replacement
+            # Fix: Transition logic
+            ui.modal_remove()
+            await anyio.sleep(0.2)
             if h:
                 ui.modal_show(day_details_modal(h["year"], h["month"], h["day"], events.get()))
-            else:
-                ui.modal_remove()
         except Exception as e:
             ui.notification_show(f"Error: {e}", type="error")
 
@@ -661,7 +662,9 @@ def server(input, output, session):
             selected_date.set({"year": y, "month": m, "day": d})
             selected_event_id.set(None)
             
-            # Fix: Direct replacement
+            # Fix: Transition logic
+            ui.modal_remove()
+            await anyio.sleep(0.2)
             ui.modal_show(day_details_modal(y, m, d, events.get()))
             ui.notification_show("Event saved.", type="message")
         except Exception as e:
