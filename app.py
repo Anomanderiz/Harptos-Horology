@@ -864,8 +864,9 @@ def server(input, output, session):
         cards = [timeline_card(r) for r in rows_sorted]
 
         jump_row = ui.div(
-            ui.tags.button("<< Beginning", class_="tl-jump tl-jump-start", **{"type": "button"}),
-            ui.tags.button("Most Recent >>", class_="tl-jump tl-jump-recent", **{"type": "button"}),
+            ui.div("Timeline Jump", class_="tl-jump-title"),
+            ui.tags.button("Go to Beginning", class_="tl-jump tl-jump-start", **{"type": "button"}),
+            ui.tags.button("Go to Most Recent", class_="tl-jump tl-jump-recent", **{"type": "button"}),
             class_="tl-jump-strip",
         )
         stage = ui.div(
