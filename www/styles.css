@@ -508,23 +508,27 @@ html,body{
     align-items:stretch;
   }
   .tl-carousel-viewport{
-    padding:4px 2px 10px;
+    --tl-phone-card-w: clamp(208px, calc(100vw - 84px), 300px);
+    padding:4px 0 10px;
+    min-height:400px;
   }
   .tl-carousel-track{
-    gap:0;
+    gap:10px;
+    width:max-content;
+    min-width:100%;
   }
   .tl-card-wrap{
-    flex:0 0 100%;
-    width:100%;
-    min-width:100%;
-    padding:0 1px;
-    display:flex;
-    justify-content:center;
+    flex:0 0 var(--tl-phone-card-w);
+    width:var(--tl-phone-card-w);
+    min-width:var(--tl-phone-card-w);
+    max-width:var(--tl-phone-card-w);
+    box-sizing:border-box;
+    padding:0;
   }
   .tl-card{
-    width:82vw;
-    max-width:300px;
-    min-width:230px;
+    width:100%;
+    max-width:none;
+    min-width:0;
     height:392px;
     margin:0;
     padding:12px 11px 10px;
@@ -569,12 +573,11 @@ html,body{
     padding:8px 4px 8px;
   }
   .tl-carousel-viewport{
+    --tl-phone-card-w: clamp(190px, calc(100vw - 72px), 252px);
     padding:3px 0 8px;
+    min-height:368px;
   }
   .tl-card{
-    width:84vw;
-    max-width:272px;
-    min-width:210px;
     height:360px;
   }
   .tl-title{
