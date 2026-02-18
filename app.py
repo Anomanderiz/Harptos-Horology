@@ -199,13 +199,18 @@ CUSTOM_JS = """
         window.setTimeout(normalizeLoop, 320);
       }
 
-      function jumpToRecent(isRecent) {
-        stopMomentum();
+      function jumpToIndex(index, smooth) {
         const step = stepSize();
         const offset = baseOffset();
-        const index = isRecent ? baseCount - 1 : 0;
-        const target = offset + index * step;
-        viewport.scrollTo({ left: target, behavior: "smooth" });
+        if (!step || !Number.isFinite(index)) return;
+        const clamped = Math.max(0, Math.min(baseCount - 1, Math.round(index)));
+        const target = offset + clamped * step;
+        viewport.scrollTo({ left: target, behavior: smooth ? "smooth" : "auto" });
+      }
+
+      function jumpToRecent(isRecent) {
+        stopMomentum();
+        jumpToIndex(isRecent ? baseCount - 1 : 0, true);
       }
 
       function startMomentum(initialVelocity) {
@@ -291,6 +296,14 @@ CUSTOM_JS = """
 
       requestAnimationFrame(() => {
         viewport.scrollLeft = baseOffset();
+        const targetRaw = shell.dataset.targetIndex;
+        if (targetRaw !== undefined && targetRaw !== "") {
+          const idx = Number(targetRaw);
+          if (Number.isFinite(idx) && idx >= 0) {
+            jumpToIndex(idx, false);
+            return;
+          }
+        }
         snapToNearest(false);
       });
     });
@@ -880,43 +893,66 @@ def server(input, output, session):
             except Exception:
                 query_raw = ""
         query = query_raw.casefold()
+        cards = [timeline_card(r) for r in rows_sorted]
 
-        def _matches(row: Dict[str, Any]) -> bool:
-            if not query:
-                return True
-            y = int(row.get("year", DEFAULT_CURRENT["year"]))
-            m = int(row.get("month", DEFAULT_CURRENT["month"]))
-            d = int(row.get("day", DEFAULT_CURRENT["day"]))
-            hay = " ".join(
-                [
-                    str(y),
-                    str(m),
-                    str(d),
-                    f"{y:04d}-{m:02d}-{d:02d}",
-                    f"{month_short(m)} {d} {y}",
-                    f"{month_name(m)} {d} {y}",
-                    str(row.get("title") or ""),
-                    str(row.get("notes") or ""),
-                    str(row.get("real_world_date") or ""),
-                ]
-            ).casefold()
-            return query in hay
+        best_idx: Optional[int] = None
+        best_score = -1
+        tokens = [t for t in re.split(r"\s+", query) if t]
 
-        rows_filtered = [r for r in rows_sorted if _matches(r)]
-        cards = [timeline_card(r) for r in rows_filtered]
+        if query:
+            for idx, row in enumerate(rows_sorted):
+                y = int(row.get("year", DEFAULT_CURRENT["year"]))
+                m = int(row.get("month", DEFAULT_CURRENT["month"]))
+                d = int(row.get("day", DEFAULT_CURRENT["day"]))
 
-        if query_raw:
-            search_meta_text = f"Filter: {query_raw} ({len(rows_filtered)} / {len(rows_sorted)} cards)"
+                title = str(row.get("title") or "")
+                notes = str(row.get("notes") or "")
+                rw = str(row.get("real_world_date") or "")
+
+                title_l = title.casefold()
+                notes_l = notes.casefold()
+                rw_l = rw.casefold()
+                iso = f"{y:04d}-{m:02d}-{d:02d}"
+                human_short = f"{month_short(m)} {d} {y}".casefold()
+                human_long = f"{month_name(m)} {d} {y}".casefold()
+                hay = f"{title_l} {notes_l} {rw_l} {iso} {human_short} {human_long} {y} {m} {d}"
+
+                if query not in hay:
+                    continue
+
+                score = 100
+                if query == iso.casefold() or query == human_short or query == human_long:
+                    score += 1000
+                if query == title_l:
+                    score += 850
+                elif query in title_l:
+                    score += 700 - min(200, title_l.find(query))
+                if query in rw_l:
+                    score += 600
+                if query in human_short or query in human_long:
+                    score += 520
+                if query in notes_l:
+                    score += 300
+                if tokens and all(tok in hay for tok in tokens):
+                    score += 180
+                score += max(0, 25 - idx)
+
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
+
+        if query_raw and best_idx is not None:
+            match = rows_sorted[best_idx]
+            my = int(match.get("year", DEFAULT_CURRENT["year"]))
+            mm = int(match.get("month", DEFAULT_CURRENT["month"]))
+            md = int(match.get("day", DEFAULT_CURRENT["day"]))
+            mt = (match.get("title") or "(Untitled)").strip()
+            search_meta_text = f"Best match: {month_short(mm)} {md}, {my} - {mt} (card {best_idx + 1} of {len(rows_sorted)})"
+        elif query_raw:
+            search_meta_text = f"No match for '{query_raw}'. Showing all {len(rows_sorted)} cards."
         else:
             search_meta_text = f"Showing all cards ({len(rows_sorted)} total)"
         search_row = ui.div(ui.div(search_meta_text, class_="tl-search-meta"), class_="tl-search-wrap")
-
-        if not rows_filtered:
-            return ui.div(
-                search_row,
-                ui.div("No cards match your search.", class_="tl-empty"),
-                class_="tl-carousel-shell",
-            )
 
         jump_row = ui.div(
             ui.div("Timeline Jump", class_="tl-jump-title"),
@@ -933,7 +969,10 @@ def server(input, output, session):
             ui.tags.button(">", class_="tl-arrow tl-arrow-next", **{"type": "button", "aria-label": "Next"}),
             class_="tl-carousel-stage",
         )
-        return ui.div(search_row, jump_row, stage, class_="tl-carousel-shell")
+        shell_kwargs: Dict[str, Any] = {"class_": "tl-carousel-shell"}
+        if best_idx is not None:
+            shell_kwargs["data-target-index"] = str(best_idx)
+        return ui.div(search_row, jump_row, stage, **shell_kwargs)
 
     @render.ui
     def main_view():
