@@ -515,13 +515,16 @@ html,body{
   }
   .tl-card-wrap{
     flex:0 0 100%;
+    width:100%;
+    min-width:100%;
     padding:0 1px;
     display:flex;
     justify-content:center;
   }
   .tl-card{
-    width:min(82vw, 300px);
-    max-width:min(82vw, 300px);
+    width:82vw;
+    max-width:300px;
+    min-width:230px;
     height:392px;
     margin:0;
     padding:12px 11px 10px;
@@ -569,9 +572,10 @@ html,body{
     padding:3px 0 8px;
   }
   .tl-card{
-    width:min(86vw, 286px);
-    max-width:min(86vw, 286px);
-    height:372px;
+    width:84vw;
+    max-width:272px;
+    min-width:210px;
+    height:360px;
   }
   .tl-title{
     font-size:clamp(14px, 5.2vw, 18px);
