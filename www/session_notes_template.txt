@@ -1,9 +1,9 @@
 Harptos Session Notes Template
 
 How to use:
-1) Copy this into Google Docs.
+1) Copy this into Google Docs or any word editor if you want to.
 2) Fill one or more [Event] blocks.
-3) In Google Docs, download as Plain Text (.txt).
+3) If using Google Docs or other editor, download/export as Plain Text (.txt).
 4) Upload the file in the app and click "Import Notes".
 
 Rules:
