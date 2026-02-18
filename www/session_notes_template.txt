@@ -22,29 +22,7 @@ Notes:
 - Met with the Blackstaff.
 - Took contract to investigate missing caravans.
 - Found a map fragment pointing to Kryptgarden Forest.
-[/Event]
-
-[Event]
-Year: 1492
-Month: 1
-Day: 31
-Real-World-Date: 2026-02-25
-Title: Midwinter Feast and Council
+Title: Session 01.1 - Meeting Friends
 Notes:
-- Festival day event example (31st in festival month).
-- Alliances formed with two guild factions.
-[/Event]
-
-[Event]
-Year: 1492
-Month: Ches
-Day: 12
-Title: Session 03A - Scout Reports
-Notes:
-- Found tracks near the old watchtower.
-- Marked two possible ambush paths.
-Title: Session 03B - Ambush at Dusk
-Notes:
-- Defeated raiders and captured one alive.
-- Recovered a coded letter tied to the Red Sashes.
+- Sample
 [/Event]
