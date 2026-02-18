@@ -734,6 +734,14 @@ page = ui.page_fluid(
                 selected="calendar",
                 inline=True,
             ),
+            ui.panel_conditional(
+                "input.view_select == 'timeline'",
+                ui.input_text(
+                    "timeline_search",
+                    "Search Timeline",
+                    placeholder="Search by date, title, or notes...",
+                ),
+            ),
             class_="glass",
         ),
         class_="container mt-3",
@@ -897,16 +905,11 @@ def server(input, output, session):
         rows_filtered = [r for r in rows_sorted if _matches(r)]
         cards = [timeline_card(r) for r in rows_filtered]
 
-        search_row = ui.div(
-            ui.input_text(
-                "timeline_search",
-                "Search Timeline",
-                value=query_raw,
-                placeholder="Search by date, title, or notes...",
-            ),
-            ui.div(f"{len(rows_filtered)} / {len(rows_sorted)} cards", class_="tl-search-meta"),
-            class_="tl-search-wrap",
-        )
+        if query_raw:
+            search_meta_text = f"Filter: {query_raw} ({len(rows_filtered)} / {len(rows_sorted)} cards)"
+        else:
+            search_meta_text = f"Showing all cards ({len(rows_sorted)} total)"
+        search_row = ui.div(ui.div(search_meta_text, class_="tl-search-meta"), class_="tl-search-wrap")
 
         if not rows_filtered:
             return ui.div(
