@@ -864,7 +864,13 @@ def server(input, output, session):
                 r["id"]
             )
         )
-        query_raw = (input.timeline_search() or "").strip()
+        query_raw = ""
+        search_val = input.timeline_search
+        if search_val.is_set():
+            try:
+                query_raw = str(search_val() or "").strip()
+            except Exception:
+                query_raw = ""
         query = query_raw.casefold()
 
         def _matches(row: Dict[str, Any]) -> bool:
