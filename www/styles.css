@@ -206,6 +206,44 @@ html,body{
   box-shadow: 0 0 0 1px rgba(212,175,55,.08) inset, 0 18px 40px rgba(0,0,0,.45);
 }
 
+.tl-search-wrap{
+  margin-bottom:10px;
+}
+
+.tl-search-wrap .form-label{
+  font-family:"Cinzel", "Times New Roman", serif;
+  color:rgba(242,227,166,.94);
+  letter-spacing:.8px;
+  text-transform:uppercase;
+  font-size:12px;
+  margin-bottom:6px;
+}
+
+.tl-search-wrap .form-control{
+  background:linear-gradient(180deg,#18130f 0%, #110d0a 100%);
+  color:#fff3c1 !important;
+  border:1px solid rgba(212,175,55,.52);
+}
+.tl-search-wrap .form-control::placeholder{ color:#c8b583; }
+.tl-search-wrap .form-control:focus{
+  border-color:rgba(242,227,166,.92);
+  box-shadow:0 0 0 .18rem rgba(212,175,55,.24);
+}
+
+.tl-search-meta{
+  margin-top:6px;
+  font-family:"Cormorant Garamond", Georgia, serif;
+  color:rgba(242,227,166,.84);
+  font-size:14px;
+}
+
+.tl-empty{
+  margin:16px auto 4px;
+  text-align:center;
+  color:rgba(242,227,166,.9);
+  font-family:"Cinzel", "Times New Roman", serif;
+}
+
 .tl-carousel-stage{
   display:grid;
   grid-template-columns:auto 1fr auto;
@@ -230,6 +268,8 @@ html,body{
 
 .tl-card-wrap{
   flex:0 0 clamp(240px, 28vw, 340px);
+  position:relative;
+  z-index:1;
 }
 
 .tl-card{
@@ -247,6 +287,22 @@ html,body{
   padding:16px 16px 14px;
   display:flex;
   flex-direction:column;
+  transform:scale(1);
+  transition:transform .18s ease, box-shadow .18s ease;
+}
+
+.tl-card-wrap:hover,
+.tl-card-wrap:focus-within{
+  z-index:8;
+}
+
+.tl-card-wrap:hover .tl-card,
+.tl-card-wrap:focus-within .tl-card{
+  transform:scale(1.06);
+  box-shadow:
+    0 0 0 2px rgba(212,175,55,.16) inset,
+    0 20px 34px rgba(0,0,0,.58),
+    0 0 18px rgba(212,175,55,.28);
 }
 
 .tl-card::before{
@@ -298,16 +354,26 @@ html,body{
   line-height:1.15;
 }
 
+.tl-body{
+  margin-top:6px;
+  flex:1;
+  min-height:0;
+  overflow:auto;
+  padding-right:6px;
+}
+.tl-body::-webkit-scrollbar{ width:8px; }
+.tl-body::-webkit-scrollbar-thumb{
+  background:rgba(212,175,55,.45);
+  border-radius:999px;
+}
+
 .tl-desc{
   font-family:"Cormorant Garamond", Georgia, serif;
-  margin-top:6px;
   color:var(--gold-soft);
   font-size:14px;
   line-height:1.38;
-  overflow:hidden;
-  display:-webkit-box;
-  -webkit-box-orient:vertical;
-  -webkit-line-clamp:12;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
 }
 
 .tl-rw{
@@ -412,7 +478,7 @@ html,body{
   .tl-arrow{ width:46px; height:46px; font-size:24px; }
   .tl-card{ height:392px; padding:14px 13px 12px; }
   .tl-title{ font-size:clamp(16px, 4.8vw, 22px); }
-  .tl-desc{ font-size:13px; -webkit-line-clamp:11; }
+  .tl-desc{ font-size:13px; }
   .tl-jump-strip{
     gap:8px;
   }
