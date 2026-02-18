@@ -650,7 +650,10 @@ def timeline_card(event: Dict[str, Any]) -> ui.TagChild:
             ui.div("Chronicle", class_="tl-eyebrow"),
             ui.div(sub, class_="tl-sub"),
             ui.div(title, class_="tl-title"),
-            ui.div(desc, class_="tl-desc"),
+            ui.div(
+                ui.div(desc, class_="tl-desc"),
+                class_="tl-body",
+            ),
             ui.div(f"Real Date: {rw}", class_="tl-rw") if rw else None,
             class_="tl-card",
         ),
@@ -861,7 +864,50 @@ def server(input, output, session):
                 r["id"]
             )
         )
-        cards = [timeline_card(r) for r in rows_sorted]
+        query_raw = (input.timeline_search() or "").strip()
+        query = query_raw.casefold()
+
+        def _matches(row: Dict[str, Any]) -> bool:
+            if not query:
+                return True
+            y = int(row.get("year", DEFAULT_CURRENT["year"]))
+            m = int(row.get("month", DEFAULT_CURRENT["month"]))
+            d = int(row.get("day", DEFAULT_CURRENT["day"]))
+            hay = " ".join(
+                [
+                    str(y),
+                    str(m),
+                    str(d),
+                    f"{y:04d}-{m:02d}-{d:02d}",
+                    f"{month_short(m)} {d} {y}",
+                    f"{month_name(m)} {d} {y}",
+                    str(row.get("title") or ""),
+                    str(row.get("notes") or ""),
+                    str(row.get("real_world_date") or ""),
+                ]
+            ).casefold()
+            return query in hay
+
+        rows_filtered = [r for r in rows_sorted if _matches(r)]
+        cards = [timeline_card(r) for r in rows_filtered]
+
+        search_row = ui.div(
+            ui.input_text(
+                "timeline_search",
+                "Search Timeline",
+                value=query_raw,
+                placeholder="Search by date, title, or notes...",
+            ),
+            ui.div(f"{len(rows_filtered)} / {len(rows_sorted)} cards", class_="tl-search-meta"),
+            class_="tl-search-wrap",
+        )
+
+        if not rows_filtered:
+            return ui.div(
+                search_row,
+                ui.div("No cards match your search.", class_="tl-empty"),
+                class_="tl-carousel-shell",
+            )
 
         jump_row = ui.div(
             ui.div("Timeline Jump", class_="tl-jump-title"),
@@ -878,7 +924,7 @@ def server(input, output, session):
             ui.tags.button(">", class_="tl-arrow tl-arrow-next", **{"type": "button", "aria-label": "Next"}),
             class_="tl-carousel-stage",
         )
-        return ui.div(jump_row, stage, class_="tl-carousel-shell")
+        return ui.div(search_row, jump_row, stage, class_="tl-carousel-shell")
 
     @render.ui
     def main_view():
