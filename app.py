@@ -1256,7 +1256,7 @@ def day_details_modal(y: int, m: int, d: int, all_events: List[Dict[str, Any]]) 
                     ui.div(
                         ui.span(title, class_="fw-bold fs-5"),
                         ui.tags.button(
-                            "âœŽ Edit",
+                            "Edit",
                             class_="btn btn-link btn-sm edit-event-btn text-decoration-none",
                             **{"type": "button", "data-edit-id": str(r["id"])}
                         ),
