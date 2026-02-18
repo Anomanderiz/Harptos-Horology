@@ -353,6 +353,14 @@ html,body{
   flex-wrap:wrap;
 }
 
+.tl-jump-strip{
+  margin-bottom:10px;
+  display:flex;
+  justify-content:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
 .tl-jump{
   border:1px solid rgba(212,175,55,.65);
   border-radius:999px;
@@ -378,6 +386,9 @@ html,body{
   .tl-card{ height:392px; padding:14px 13px 12px; }
   .tl-title{ font-size:clamp(16px, 4.8vw, 22px); }
   .tl-desc{ font-size:13px; -webkit-line-clamp:11; }
+  .tl-jump-strip{
+    gap:8px;
+  }
 }
 
 /* Misc text helpers */
