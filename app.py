@@ -102,21 +102,31 @@ CUSTOM_JS = """
       const baseCount = baseCards.length;
       if (!baseCount) return;
 
-      const cloneCount = Math.min(3, baseCount);
-      const head = baseCards.slice(0, cloneCount).map((node) => {
-        const clone = node.cloneNode(true);
+      const rawGap = getComputedStyle(track).columnGap || getComputedStyle(track).gap || "24px";
+      const gapEstimate = Number.parseFloat(rawGap);
+      const cardWidth = baseCards[0].getBoundingClientRect().width || 320;
+      const stepEstimate = cardWidth + (Number.isFinite(gapEstimate) ? gapEstimate : 24);
+      const visibleCards = Math.max(1, Math.ceil(viewport.clientWidth / Math.max(1, stepEstimate)));
+      const cloneCount = Math.max(3, visibleCards + 2);
+
+      const cloneFrom = (index) => {
+        const source = baseCards[((index % baseCount) + baseCount) % baseCount];
+        const clone = source.cloneNode(true);
         clone.classList.add("tl-card-clone");
         return clone;
-      });
-      const tail = baseCards.slice(baseCount - cloneCount).map((node) => {
-        const clone = node.cloneNode(true);
-        clone.classList.add("tl-card-clone");
-        return clone;
-      });
-      for (let i = tail.length - 1; i >= 0; i--) {
-        track.insertBefore(tail[i], track.firstChild);
+      };
+
+      const leftFrag = document.createDocumentFragment();
+      for (let i = cloneCount; i >= 1; i--) {
+        leftFrag.appendChild(cloneFrom(baseCount - i));
       }
-      head.forEach((clone) => track.appendChild(clone));
+      track.insertBefore(leftFrag, track.firstChild);
+
+      const rightFrag = document.createDocumentFragment();
+      for (let i = 0; i < cloneCount; i++) {
+        rightFrag.appendChild(cloneFrom(i));
+      }
+      track.appendChild(rightFrag);
 
       shell.dataset.carouselInit = "1";
 
@@ -271,13 +281,13 @@ CUSTOM_JS = """
 
       const prev = shell.querySelector(".tl-arrow-prev");
       const next = shell.querySelector(".tl-arrow-next");
-      const jumpStart = shell.querySelector(".tl-jump-start");
-      const jumpRecent = shell.querySelector(".tl-jump-recent");
+      const jumpStartButtons = shell.querySelectorAll(".tl-jump-start");
+      const jumpRecentButtons = shell.querySelectorAll(".tl-jump-recent");
 
       if (prev) prev.addEventListener("click", () => moveBy(-1));
       if (next) next.addEventListener("click", () => moveBy(1));
-      if (jumpStart) jumpStart.addEventListener("click", () => jumpToRecent(false));
-      if (jumpRecent) jumpRecent.addEventListener("click", () => jumpToRecent(true));
+      jumpStartButtons.forEach((btn) => btn.addEventListener("click", () => jumpToRecent(false)));
+      jumpRecentButtons.forEach((btn) => btn.addEventListener("click", () => jumpToRecent(true)));
 
       requestAnimationFrame(() => {
         viewport.scrollLeft = baseOffset();
@@ -853,6 +863,11 @@ def server(input, output, session):
         )
         cards = [timeline_card(r) for r in rows_sorted]
 
+        jump_row = ui.div(
+            ui.tags.button("<< Beginning", class_="tl-jump tl-jump-start", **{"type": "button"}),
+            ui.tags.button("Most Recent >>", class_="tl-jump tl-jump-recent", **{"type": "button"}),
+            class_="tl-jump-strip",
+        )
         stage = ui.div(
             ui.tags.button("<", class_="tl-arrow tl-arrow-prev", **{"type": "button", "aria-label": "Previous"}),
             ui.div(
@@ -862,12 +877,7 @@ def server(input, output, session):
             ui.tags.button(">", class_="tl-arrow tl-arrow-next", **{"type": "button", "aria-label": "Next"}),
             class_="tl-carousel-stage",
         )
-        actions = ui.div(
-            ui.tags.button("Beginning", class_="tl-jump tl-jump-start", **{"type": "button"}),
-            ui.tags.button("Most Recent", class_="tl-jump tl-jump-recent", **{"type": "button"}),
-            class_="tl-quick-actions",
-        )
-        return ui.div(stage, actions, class_="tl-carousel-shell")
+        return ui.div(jump_row, stage, class_="tl-carousel-shell")
 
     @render.ui
     def main_view():
