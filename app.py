@@ -1,6 +1,6 @@
-# app.py
+﻿# app.py
 # ------------------------------------------------------------------------------
-# Harptos – Calendar + Timeline with Video Backdrop
+# Harptos â€“ Calendar + Timeline with Video Backdrop
 # Refined Version (Fixed Modal Collision & Scroll Glitch)
 # ------------------------------------------------------------------------------
 
@@ -10,7 +10,7 @@ import json
 import os
 import re
 from datetime import date
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from collections import defaultdict
 
 import anyio
@@ -66,15 +66,6 @@ ASSETS_DIR = os.path.join(os.path.dirname(__file__), "www")
 # ------------------------------------------------------------------------------
 
 CUSTOM_CSS = """
-/* Timeline Expansion Logic - Render always, toggle visibility */
-.tl-desc { display: none; }
-.tl-item.expanded .tl-desc { display: block; animation: fadeIn 0.3s; }
-
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-5px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
 /* Glass / UI Fixes */
 .glass {
     background: rgba(20, 20, 30, 0.85);
@@ -91,6 +82,249 @@ CUSTOM_CSS = """
     background: rgba(255, 255, 255, 0.1);
 }
 .pip-wrap { font-size: 0.7rem; color: #ffd700; margin-left: 4px; }
+"""
+
+CUSTOM_JS = """
+(function () {
+  if (window.__harptosUiBound) return;
+  window.__harptosUiBound = true;
+
+  function initTimelineCarousels() {
+    const shells = document.querySelectorAll(".tl-carousel-shell");
+    shells.forEach((shell) => {
+      if (shell.dataset.carouselInit === "1") return;
+
+      const viewport = shell.querySelector(".tl-carousel-viewport");
+      const track = shell.querySelector(".tl-carousel-track");
+      if (!viewport || !track) return;
+
+      const baseCards = Array.from(track.querySelectorAll(":scope > .tl-card-wrap"));
+      const baseCount = baseCards.length;
+      if (!baseCount) return;
+
+      const cloneCount = Math.min(3, baseCount);
+      const head = baseCards.slice(0, cloneCount).map((node) => {
+        const clone = node.cloneNode(true);
+        clone.classList.add("tl-card-clone");
+        return clone;
+      });
+      const tail = baseCards.slice(baseCount - cloneCount).map((node) => {
+        const clone = node.cloneNode(true);
+        clone.classList.add("tl-card-clone");
+        return clone;
+      });
+      for (let i = tail.length - 1; i >= 0; i--) {
+        track.insertBefore(tail[i], track.firstChild);
+      }
+      head.forEach((clone) => track.appendChild(clone));
+
+      shell.dataset.carouselInit = "1";
+
+      let momentumId = 0;
+      let dragging = false;
+      let startX = 0;
+      let startScroll = 0;
+      let lastX = 0;
+      let lastTime = 0;
+      let velocity = 0;
+
+      function gapSize() {
+        const raw = getComputedStyle(track).columnGap || getComputedStyle(track).gap || "24px";
+        const n = Number.parseFloat(raw);
+        return Number.isFinite(n) ? n : 24;
+      }
+
+      function stepSize() {
+        const card = track.querySelector(".tl-card-wrap");
+        if (!card) return 320;
+        return card.getBoundingClientRect().width + gapSize();
+      }
+
+      function loopSpan() {
+        return stepSize() * baseCount;
+      }
+
+      function baseOffset() {
+        return stepSize() * cloneCount;
+      }
+
+      function stopMomentum() {
+        if (momentumId) {
+          cancelAnimationFrame(momentumId);
+          momentumId = 0;
+        }
+      }
+
+      function normalizeLoop() {
+        const span = loopSpan();
+        const offset = baseOffset();
+        const step = stepSize();
+        if (!span || !step) return;
+
+        if (viewport.scrollLeft < offset - step) {
+          viewport.scrollLeft += span;
+        } else if (viewport.scrollLeft >= offset + span + step) {
+          viewport.scrollLeft -= span;
+        }
+      }
+
+      function snapToNearest(smooth) {
+        const step = stepSize();
+        const span = loopSpan();
+        const offset = baseOffset();
+        if (!step || !span) return;
+
+        let pos = viewport.scrollLeft;
+        while (pos < offset) pos += span;
+        while (pos >= offset + span) pos -= span;
+
+        const idx = Math.round((pos - offset) / step);
+        const target = offset + idx * step;
+        viewport.scrollTo({ left: target, behavior: smooth ? "smooth" : "auto" });
+      }
+
+      function moveBy(direction) {
+        stopMomentum();
+        viewport.scrollBy({ left: direction * stepSize(), behavior: "smooth" });
+        window.setTimeout(normalizeLoop, 320);
+      }
+
+      function jumpToRecent(isRecent) {
+        stopMomentum();
+        const step = stepSize();
+        const offset = baseOffset();
+        const index = isRecent ? baseCount - 1 : 0;
+        const target = offset + index * step;
+        viewport.scrollTo({ left: target, behavior: "smooth" });
+      }
+
+      function startMomentum(initialVelocity) {
+        stopMomentum();
+        let v = initialVelocity * 16;
+        function frame() {
+          viewport.scrollLeft += v;
+          normalizeLoop();
+          v *= 0.94;
+          if (Math.abs(v) < 0.25) {
+            snapToNearest(true);
+            return;
+          }
+          momentumId = requestAnimationFrame(frame);
+        }
+        momentumId = requestAnimationFrame(frame);
+      }
+
+      function endDrag(event) {
+        if (!dragging) return;
+        dragging = false;
+        viewport.classList.remove("dragging");
+        try {
+          viewport.releasePointerCapture(event.pointerId);
+        } catch (_) {}
+        if (Math.abs(velocity) > 0.02) {
+          startMomentum(velocity);
+        } else {
+          snapToNearest(true);
+        }
+      }
+
+      viewport.addEventListener("pointerdown", (event) => {
+        dragging = true;
+        viewport.classList.add("dragging");
+        stopMomentum();
+        viewport.setPointerCapture(event.pointerId);
+        startX = event.clientX;
+        startScroll = viewport.scrollLeft;
+        lastX = event.clientX;
+        lastTime = performance.now();
+        velocity = 0;
+      });
+
+      viewport.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        const dx = event.clientX - startX;
+        viewport.scrollLeft = startScroll - dx;
+        const now = performance.now();
+        const dt = Math.max(1, now - lastTime);
+        velocity = (lastX - event.clientX) / dt;
+        lastX = event.clientX;
+        lastTime = now;
+        normalizeLoop();
+      });
+
+      viewport.addEventListener("pointerup", endDrag);
+      viewport.addEventListener("pointercancel", endDrag);
+
+      viewport.addEventListener(
+        "wheel",
+        (event) => {
+          if (Math.abs(event.deltaY) >= Math.abs(event.deltaX)) {
+            event.preventDefault();
+            viewport.scrollLeft += event.deltaY;
+          } else {
+            viewport.scrollLeft += event.deltaX;
+          }
+          normalizeLoop();
+        },
+        { passive: false }
+      );
+
+      const prev = shell.querySelector(".tl-arrow-prev");
+      const next = shell.querySelector(".tl-arrow-next");
+      const jumpStart = shell.querySelector(".tl-jump-start");
+      const jumpRecent = shell.querySelector(".tl-jump-recent");
+
+      if (prev) prev.addEventListener("click", () => moveBy(-1));
+      if (next) next.addEventListener("click", () => moveBy(1));
+      if (jumpStart) jumpStart.addEventListener("click", () => jumpToRecent(false));
+      if (jumpRecent) jumpRecent.addEventListener("click", () => jumpToRecent(true));
+
+      requestAnimationFrame(() => {
+        viewport.scrollLeft = baseOffset();
+        snapToNearest(false);
+      });
+    });
+  }
+
+  document.addEventListener("click", function (e) {
+    const dayBtn = e.target.closest(".day-tile-btn");
+    if (dayBtn) {
+      const month = Number(dayBtn.getAttribute("data-month"));
+      const day = Number(dayBtn.getAttribute("data-day"));
+      if (Number.isFinite(month) && Number.isFinite(day) && window.Shiny?.setInputValue) {
+        window.Shiny.setInputValue(
+          "js_date_click",
+          { month: month, day: day, nonce: Date.now() },
+          { priority: "event" }
+        );
+      }
+      return;
+    }
+
+    const editBtn = e.target.closest(".edit-event-btn");
+    if (editBtn) {
+      e.stopPropagation();
+      const id = editBtn.getAttribute("data-edit-id");
+      if (id && window.Shiny?.setInputValue) {
+        window.Shiny.setInputValue(
+          "edit_event_clicked",
+          { id: id, nonce: Date.now() },
+          { priority: "event" }
+        );
+      }
+      return;
+    }
+  });
+
+  const observer = new MutationObserver(function () {
+    initTimelineCarousels();
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  document.addEventListener("DOMContentLoaded", initTimelineCarousels);
+  document.addEventListener("shiny:connected", initTimelineCarousels);
+  window.setTimeout(initTimelineCarousels, 100);
+})();
 """
 
 # ------------------------------------------------------------------------------
@@ -203,77 +437,116 @@ def parse_session_notes_text(text: str) -> Tuple[List[Dict[str, Any]], List[str]
     errors: List[str] = []
 
     for idx, block in enumerate(blocks, start=1):
-        year = DEFAULT_CURRENT["year"]
-        month = DEFAULT_CURRENT["month"]
-        day = DEFAULT_CURRENT["day"]
-        title = ""
-        real_world_date: Optional[str] = None
+        base_year = DEFAULT_CURRENT["year"]
+        base_month = DEFAULT_CURRENT["month"]
+        base_day = DEFAULT_CURRENT["day"]
+        base_real_world_date: Optional[str] = None
         has_fatal_error = False
 
-        notes_lines: List[str] = []
+        items: List[Dict[str, Any]] = []
+        cur_item: Optional[Dict[str, Any]] = None
         reading_notes = False
+
+        def _finish_item() -> None:
+            nonlocal cur_item
+            if not cur_item:
+                return
+            notes_text = "\n".join(cur_item.get("notes_lines", [])).strip()
+            items.append(
+                {
+                    "title": (cur_item.get("title") or "(Untitled)").strip(),
+                    "notes": notes_text,
+                    "real_world_date": cur_item.get("real_world_date"),
+                }
+            )
+            cur_item = None
+
         for raw_line in block.splitlines():
             line = raw_line.rstrip("\r")
-            if not reading_notes:
-                notes_match = re.match(r"^\s*notes\s*:\s*(.*)$", line, flags=re.IGNORECASE)
-                if notes_match:
-                    reading_notes = True
-                    first = notes_match.group(1).strip()
-                    if first:
-                        notes_lines.append(first)
-                    continue
 
-                kv = re.match(r"^\s*([A-Za-z _-]+)\s*:\s*(.*?)\s*$", line)
-                if not kv:
-                    continue
-                key = kv.group(1).strip().lower().replace("-", "_").replace(" ", "_")
-                val = kv.group(2).strip()
+            title_match = re.match(r"^\s*title\s*:\s*(.*)$", line, flags=re.IGNORECASE)
+            if title_match:
+                _finish_item()
+                cur_item = {
+                    "title": title_match.group(1).strip(),
+                    "notes_lines": [],
+                    "real_world_date": base_real_world_date,
+                }
+                reading_notes = False
+                continue
 
-                if key == "year":
+            notes_match = re.match(r"^\s*notes\s*:\s*(.*)$", line, flags=re.IGNORECASE)
+            if notes_match:
+                if cur_item is None:
+                    cur_item = {"title": "(Untitled)", "notes_lines": [], "real_world_date": base_real_world_date}
+                reading_notes = True
+                first = notes_match.group(1).strip()
+                if first:
+                    cur_item["notes_lines"].append(first)
+                continue
+
+            if reading_notes:
+                if cur_item is None:
+                    cur_item = {"title": "(Untitled)", "notes_lines": [], "real_world_date": base_real_world_date}
+                cur_item["notes_lines"].append(line)
+                continue
+
+            kv = re.match(r"^\s*([A-Za-z _-]+)\s*:\s*(.*?)\s*$", line)
+            if not kv:
+                continue
+            key = kv.group(1).strip().lower().replace("-", "_").replace(" ", "_")
+            val = kv.group(2).strip()
+
+            if key == "year":
+                try:
+                    base_year = int(val)
+                except Exception:
+                    errors.append(f"Block {idx}: invalid year '{val}'.")
+                    has_fatal_error = True
+            elif key == "month":
+                m = parse_month_value(val)
+                if m is None:
+                    errors.append(f"Block {idx}: invalid month '{val}'.")
+                    has_fatal_error = True
+                else:
+                    base_month = m
+            elif key == "day":
+                try:
+                    base_day = int(val)
+                except Exception:
+                    errors.append(f"Block {idx}: invalid day '{val}'.")
+                    has_fatal_error = True
+            elif key in ("real_world_date", "real_date", "date"):
+                if val:
                     try:
-                        year = int(val)
+                        date.fromisoformat(val)
+                        if cur_item is not None:
+                            cur_item["real_world_date"] = val
+                        else:
+                            base_real_world_date = val
                     except Exception:
-                        errors.append(f"Block {idx}: invalid year '{val}'.")
-                        has_fatal_error = True
-                elif key == "month":
-                    m = parse_month_value(val)
-                    if m is None:
-                        errors.append(f"Block {idx}: invalid month '{val}'.")
-                        has_fatal_error = True
-                    else:
-                        month = m
-                elif key == "day":
-                    try:
-                        day = int(val)
-                    except Exception:
-                        errors.append(f"Block {idx}: invalid day '{val}'.")
-                        has_fatal_error = True
-                elif key == "title":
-                    title = val
-                elif key in ("real_world_date", "real_date", "date"):
-                    if val:
-                        try:
-                            date.fromisoformat(val)
-                            real_world_date = val
-                        except Exception:
-                            errors.append(f"Block {idx}: real-world date must be YYYY-MM-DD.")
-            else:
-                notes_lines.append(line)
+                        errors.append(f"Block {idx}: real-world date must be YYYY-MM-DD.")
+
+        _finish_item()
 
         if has_fatal_error:
             continue
 
-        h = sanitize_harptos_date(year, month, day)
-        parsed.append(
-            {
-                "year": h["year"],
-                "month": h["month"],
-                "day": h["day"],
-                "title": (title or "(Untitled)").strip(),
-                "notes": "\n".join(notes_lines).strip(),
-                "real_world_date": real_world_date,
-            }
-        )
+        if not items:
+            items.append({"title": "(Untitled)", "notes": "", "real_world_date": base_real_world_date})
+
+        h = sanitize_harptos_date(base_year, base_month, base_day)
+        for item in items:
+            parsed.append(
+                {
+                    "year": h["year"],
+                    "month": h["month"],
+                    "day": h["day"],
+                    "title": item["title"],
+                    "notes": item["notes"],
+                    "real_world_date": item["real_world_date"],
+                }
+            )
 
     return parsed, errors
 
@@ -287,8 +560,8 @@ def pip_for_day(m: int, d: int, ms: Dict[str, List[Dict[str, int]]]) -> Optional
     if not (has_new or has_full):
         return None
     dots = []
-    if has_new: dots.append(ui.span("●", class_="pip", title="New Moon", style="color: #aaa;"))
-    if has_full: dots.append(ui.span("○", class_="pip", title="Full Moon", style="color: #fff; font-weight:bold;"))
+    if has_new: dots.append(ui.span("â—", class_="pip", title="New Moon", style="color: #aaa;"))
+    if has_full: dots.append(ui.span("â—‹", class_="pip", title="Full Moon", style="color: #fff; font-weight:bold;"))
     return ui.span(*dots, class_="pip-wrap")
 
 def event_blurbs(events_list: List[Dict[str, Any]]) -> ui.TagChild:
@@ -352,35 +625,27 @@ def month_card(m: int, cur: Optional[HarptosDate],
         class_="month-card glass",
     )
 
-def timeline_card(event: Dict[str, Any], gap_px: int, expanded: bool) -> ui.TagChild:
+def timeline_card(event: Dict[str, Any]) -> ui.TagChild:
     y = int(event.get("year", 1492))
     m = int(event.get("month", 1))
     d = int(event.get("day", 1))
     eid = str(event.get("id"))
     title = (event.get("title") or "(Untitled)").strip()
     sub = f"{ordinal_suffix(d)} of {month_short(m)}, {y}"
-    desc = (event.get("notes") or "").strip()
+    desc = (event.get("notes") or "").strip() or "No notes recorded."
+    rw = (event.get("real_world_date") or "").strip()
 
-    container_cls = "tl-item expanded" if expanded else "tl-item"
-
-    inner = ui.div(
-        ui.div(title, class_="tl-title"),
-        ui.div(sub, class_="tl-sub"),
-        ui.div(desc, class_="tl-desc") if desc else None,
-        class_="tl-card",
-    )
-    
-    btn = ui.tags.button(
-        inner,
-        class_="tl-card-btn",
-        **{"type": "button", "data-tl-id": eid}
-    )
-    
     return ui.div(
-        ui.div(class_="tl-dot"),
-        btn,
-        class_=container_cls,
-        style=f"margin-top:{max(0, gap_px)}px;",
+        ui.div(
+            ui.div("Chronicle", class_="tl-eyebrow"),
+            ui.div(sub, class_="tl-sub"),
+            ui.div(title, class_="tl-title"),
+            ui.div(desc, class_="tl-desc"),
+            ui.div(f"Real Date: {rw}", class_="tl-rw") if rw else None,
+            class_="tl-card",
+        ),
+        class_="tl-card-wrap",
+        **{"data-event-id": eid}
     )
 
 # ------------------------------------------------------------------------------
@@ -398,7 +663,7 @@ page = ui.page_fluid(
     ui.head_content(
         ui.tags.link(rel="stylesheet", href="styles.css"),
         ui.tags.style(CUSTOM_CSS),
-        ui.tags.script(src="js/delegates.js"),
+        ui.tags.script(CUSTOM_JS),
     ),
     bg_video,
     bg_overlay,
@@ -477,7 +742,6 @@ def server(input, output, session):
     
     selected_date: reactive.Value[Optional[HarptosDate]] = reactive.Value(None)
     selected_event_id: reactive.Value[Optional[str]] = reactive.Value(None)
-    expanded_ids: reactive.Value[Set[str]] = reactive.Value(set())
 
     def set_current_and_controls(h: HarptosDate) -> None:
         current.set(h)
@@ -555,7 +819,7 @@ def server(input, output, session):
     @render.text
     def current_date_label():
         h = current.get()
-        return "—" if not h else f"{month_short(h['month'])} {h['day']}, {h['year']}"
+        return "â€”" if not h else f"{month_short(h['month'])} {h['day']}, {h['year']}"
 
     # ---- View Builders -------------------------------------------------------
 
@@ -587,24 +851,23 @@ def server(input, output, session):
                 r["id"]
             )
         )
+        cards = [timeline_card(r) for r in rows_sorted]
 
-        PX_PER_DAY = 6
-        MIN_GAP = 28
-        MAX_GAP = 320
-
-        items: List[ui.TagChild] = []
-        prev_ord: Optional[int] = None
-        
-        expanded_set = expanded_ids.get()
-
-        for r in rows_sorted:
-            y, m, d = int(r["year"]), int(r["month"]), int(r["day"])
-            cur_ord = harptos_ordinal(y, m, d)
-            gap = 0 if prev_ord is None else min(MAX_GAP, MIN_GAP + max(0, cur_ord - prev_ord) * PX_PER_DAY)
-            prev_ord = cur_ord
-            items.append(timeline_card(r, gap, str(r["id"]) in expanded_set))
-
-        return ui.div(*items, class_="timeline-wrap")
+        stage = ui.div(
+            ui.tags.button("<", class_="tl-arrow tl-arrow-prev", **{"type": "button", "aria-label": "Previous"}),
+            ui.div(
+                ui.div(*cards, class_="tl-carousel-track"),
+                class_="tl-carousel-viewport",
+            ),
+            ui.tags.button(">", class_="tl-arrow tl-arrow-next", **{"type": "button", "aria-label": "Next"}),
+            class_="tl-carousel-stage",
+        )
+        actions = ui.div(
+            ui.tags.button("Beginning", class_="tl-jump tl-jump-start", **{"type": "button"}),
+            ui.tags.button("Most Recent", class_="tl-jump tl-jump-recent", **{"type": "button"}),
+            class_="tl-quick-actions",
+        )
+        return ui.div(stage, actions, class_="tl-carousel-shell")
 
     @render.ui
     def main_view():
@@ -634,17 +897,6 @@ def server(input, output, session):
             ui.modal_show(day_details_modal(h["year"], h["month"], h["day"], events.get()))
         except Exception as e:
             print(f"Click error: {e}")
-
-    @reactive.Effect
-    @reactive.event(input.tl_toggle)
-    def _on_tl_toggle():
-        eid = str(input.tl_toggle() or "")
-        if not eid: return
-        # Update state silently in background
-        cur = set(expanded_ids.get())
-        if eid in cur: cur.remove(eid)
-        else: cur.add(eid)
-        expanded_ids.set(cur)
 
     @reactive.Effect
     @reactive.event(input.edit_event_clicked)
@@ -899,7 +1151,7 @@ def day_details_modal(y: int, m: int, d: int, all_events: List[Dict[str, Any]]) 
                     ui.div(
                         ui.span(title, class_="fw-bold fs-5"),
                         ui.tags.button(
-                            "✎ Edit",
+                            "âœŽ Edit",
                             class_="btn btn-link btn-sm edit-event-btn text-decoration-none",
                             **{"type": "button", "data-edit-id": str(r["id"])}
                         ),
@@ -946,3 +1198,4 @@ def event_form_modal(y: int, m: int, d: int, *, title_val: str = "", notes_val: 
     )
 
 app = App(page, server=server, static_assets=ASSETS_DIR)
+

@@ -62,3 +62,6 @@ Template field mapping:
 - `Title` -> event title
 - `Real-World-Date` -> `real_world_date` (ISO `YYYY-MM-DD`)
 - `Notes` block -> event notes
+
+Batch shorthand:
+- Inside one `[Event] ... [/Event]` block, repeat `Title:` + `Notes:` to create multiple events on the same date.
