@@ -473,10 +473,44 @@ html,body{
   .tl-card{ height:410px; }
 }
 
+@media (max-width:768px){
+  .tl-carousel-shell{
+    padding:14px 8px 12px;
+  }
+  .tl-carousel-stage{
+    grid-template-columns:44px 1fr 44px;
+    gap:6px;
+  }
+  .tl-carousel-viewport{
+    padding:6px 0 14px;
+  }
+  .tl-carousel-track{
+    gap:0;
+  }
+  .tl-card-wrap{
+    flex:0 0 100%;
+    padding:0 2px;
+  }
+  .tl-card{
+    height:400px;
+    max-width:100%;
+    margin:0 auto;
+  }
+  .tl-card-wrap:hover .tl-card,
+  .tl-card-wrap:focus-within .tl-card{
+    transform:scale(1);
+  }
+  .tl-jump{
+    min-width:150px;
+    min-height:40px;
+    font-size:12px;
+  }
+}
+
 @media (max-width:640px){
-  .tl-carousel-stage{ grid-template-columns:48px 1fr 48px; gap:8px; }
-  .tl-arrow{ width:46px; height:46px; font-size:24px; }
-  .tl-card{ height:392px; padding:14px 13px 12px; }
+  .tl-carousel-stage{ grid-template-columns:40px 1fr 40px; gap:6px; }
+  .tl-arrow{ width:40px; height:40px; font-size:21px; }
+  .tl-card{ height:388px; padding:14px 13px 12px; }
   .tl-title{ font-size:clamp(16px, 4.8vw, 22px); }
   .tl-desc{ font-size:13px; }
   .tl-jump-strip{
