@@ -98,9 +98,21 @@ CUSTOM_JS = """
       const track = shell.querySelector(".tl-carousel-track");
       if (!viewport || !track) return;
 
-      const baseCards = Array.from(track.querySelectorAll(":scope > .tl-card-wrap"));
+      let baseCards = [];
+      try {
+        baseCards = Array.from(track.querySelectorAll(":scope > .tl-card-wrap"));
+      } catch (_) {
+        baseCards = Array.from(track.children).filter(
+          (node) => node.classList && node.classList.contains("tl-card-wrap")
+        );
+      }
       const baseCount = baseCards.length;
       if (!baseCount) return;
+      const firstRect = baseCards[0].getBoundingClientRect();
+      if (viewport.clientWidth < 120 || firstRect.width < 80) {
+        window.setTimeout(initTimelineCarousels, 80);
+        return;
+      }
 
       const rawGap = getComputedStyle(track).columnGap || getComputedStyle(track).gap || "24px";
       const gapEstimate = Number.parseFloat(rawGap);
